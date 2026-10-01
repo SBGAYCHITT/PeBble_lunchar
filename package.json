@@ -1,0 +1,88 @@
+{
+  "name": "pebble-lunchar",
+  "version": "3.0.0",
+  "description": "Pebble Lunchar - Minecraft offline launcher",
+  "main": "main.js",
+  "author": "Felix",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --win --x64 --dir",
+    "dist": "node make-exe.js",
+    "test": "node tests/imports.test.js && node tests/timemachine.test.js && node tests/modguard.test.js && node tests/packinfo.test.js && node tests/modstore.test.js && node tests/instances.test.js && node tests/loaders.test.js && node tests/launcher.test.js && node tests/jvmlab.test.js && node tests/multilaunch.test.js && node tests/system.test.js && node tests/javadl.test.js && node tests/nbt.test.js && node tests/anvil.test.js && node tests/worldver.test.js && node tests/worldmerge.test.js && node tests/worldmap.test.js && node tests/worlddb.test.js && node tests/ipc-contract.test.js && node tests/ipc-runtime.test.js && node tests/i18n-ui.test.js && node tests/i18n-pages.test.js",
+    "typecheck": "node node_modules/typescript/lib/tsc.js -p tsconfig.json",
+    "test:live": "node tests/loaders.test.js --live",
+    "test:e2e": "node_modules/electron/dist/electron.exe tests/smoke.e2e.js",
+    "patches": "node scripts/apply-patches.js",
+    "postinstall": "node scripts/apply-patches.js",
+    "sign": "node scripts/sign.js",
+    "sign:dev": "node scripts/sign.js --dev",
+    "devcert": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-cert.ps1",
+    "devcert:status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-cert.ps1 -Status",
+    "sac": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sac-probe.ps1"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
+    "typescript": "^5.9.3"
+  },
+  "build": {
+    "appId": "com.felix.pebblelunchar",
+    "productName": "Pebble Lunchar",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "launcher.js",
+      "downloader.js",
+      "loaders.js",
+      "mcapi.js",
+      "accounts.js",
+      "crashdoctor.js",
+      "securestore.js",
+      "savetimemachine.js",
+      "modguard.js",
+      "zipread.js",
+      "packinfo.js",
+      "modstore.js",
+      "instances.js",
+      "migrate.js",
+      "fsutil.js",
+      "avatar.js",
+      "multilaunch.js",
+      "jvmlab.js",
+      "tray.js",
+      "sysconf.js",
+      "i18n.js",
+      "i18n-ui.js",
+      "i18n-pages.js",
+      "updater.js",
+      "screenshots.js",
+      "javadl.js",
+      "nbt.js",
+      "anvil.js",
+      "worldver.js",
+      "worldmerge.js",
+      "worldmap.js",
+      "worlddb.js",
+      "ipc/**/*",
+      "preload.js",
+      "index.html",
+      "style.css",
+      "renderer.js",
+      "pages.js",
+      "assets/**/*"
+    ],
+    "electronDist": "node_modules/electron/dist",
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "portable": {
+      "artifactName": "Pebble-Lunchar.exe"
+    }
+  }
+}

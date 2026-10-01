@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <!-- 安全基线：只允许加载本应用自带资源；禁用插件/嵌套框架/表单提交/base 劫持。
+       img-src 需 file: 以显示本地截图与 pack.png 缩略图。 -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self';
+    script-src 'self';
+    style-src 'self' 'unsafe-inline';
+    img-src 'self' file: data:;
+    connect-src 'self';
+    font-src 'self' data:;
+    object-src 'none';
+    frame-src 'none';
+    base-uri 'none';
+    form-action 'none'" />
+  <title>Pebble Lunchar</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <div id="titlebar" class="drag">
+      <div class="logo">
+        <img class="logo-mark" src="assets/logo.png" alt="PB" draggable="false" />
+        <span class="logo-text">PEBBLE <em>LUNCHAR</em></span>
+        <span class="logo-badge" id="nav-title">启动</span>
+      </div>
+      <div class="win-controls no-drag">
+        <button id="btn-min" class="win-btn" title="最小化">─</button>
+        <button id="btn-close" class="win-btn close" title="关闭">✕</button>
+      </div>
+    </div>
+
+    <div id="body">
+      <nav id="nav">
+        <button class="nav-item active" data-page="launch"><span class="ni">▶</span><span data-i18n="nav.launch">启动</span></button>
+        <button class="nav-item" data-page="versions"><span class="ni">⛏</span><span data-i18n="nav.versions">版本</span></button>
+        <button class="nav-item" data-page="instances"><span class="ni">◈</span><span data-i18n="nav.instances">实例</span></button>
+        <button class="nav-item" data-page="mods"><span class="ni">✦</span><span data-i18n="nav.mods">Mod</span></button>
+        <button class="nav-item" data-page="rps"><span class="ni">▤</span><span data-i18n="nav.rps">资源包</span></button>
+        <button class="nav-item" data-page="shaders"><span class="ni">☀</span><span data-i18n="nav.shaders">光影</span></button>
+        <button class="nav-item" data-page="saves"><span class="ni">■</span><span data-i18n="nav.saves">存档</span></button>
+        <button class="nav-item" data-page="shots"><span class="ni">◫</span><span data-i18n="nav.shots">截图</span></button>
+        <button class="nav-item" data-page="account"><span class="ni">☺</span><span data-i18n="nav.account">账户</span></button>
+        <button class="nav-item" data-page="lab"><span class="ni">⚗</span><span data-i18n="nav.lab">调优</span></button>
+        <button class="nav-item" data-page="logs"><span class="ni">≡</span><span data-i18n="nav.logs">日志</span></button>
+        <button class="nav-item" data-page="settings"><span class="ni">⚙</span><span data-i18n="nav.settings">设置</span></button>
+        <button class="nav-item" data-page="about"><span class="ni">?</span><span data-i18n="nav.about">关于</span></button>
+        <button class="nav-item" data-page="world"><span class="ni">🌐</span><span data-i18n="nav.world">世界</span></button>
+      </nav>
+
+      <main id="main">
+        <!-- ============ 启动 ============ -->
+        <section class="page active" id="page-launch">
+          <div class="col-left">
+            <div class="card profile">
+              <div class="avatar" id="avatar">?</div>
+              <div class="pmeta">
+                <div class="pname" id="acc-name">未登录</div>
+                <div class="ptype" id="acc-type">离线模式</div>
+              </div>
+            </div>
+            <div class="card inst-pick">
+              <div class="card-head"><span>当前实例</span><button id="btn-inst-manage" class="ghost-btn">管理</button></div>
+              <select id="inst-select" class="sel wide"><option value="">加载中…</option></select>
+              <div class="inst-hint" id="inst-hint"></div>
+            </div>
+            <div class="card fill">
+              <div class="card-head"><span>游戏版本</span><button id="btn-refresh" class="ghost-btn">⟳ 刷新</button></div>
+              <div id="version-list" class="list scroll"></div>
+            </div>
+          </div>
+          <div class="col-right">
+            <div class="card status">
+              <div class="status-row"><span class="status-dot" id="status-dot"></span><span id="status-text">就绪</span></div>
+              <div class="java-info" id="java-info">检测 Java…</div>
+            </div>
+            <div class="card quick">
+              <div class="card-head"><span>快捷设置</span></div>
+              <div class="qrow"><label>内存</label><input id="mem" type="range" min="1" max="16" step="1" value="4" /><span id="mem-label">4 GB</span></div>
+              <div class="qrow"><label>宽</label><input id="win-w" class="inp tiny" type="number" value="854" /><label>高</label><input id="win-h" class="inp tiny" type="number" value="480" />
+                <label class="chk"><input id="fullscreen" type="checkbox" />全屏</label></div>
+              <div class="qrow"><label>玩家名</label><input id="player-name" class="inp" maxlength="16" placeholder="离线玩家名" spellcheck="false" /></div>
+            </div>
+            <div class="card log-card fill">
+              <div class="card-head"><span>运行日志</span><button id="btn-clearlog" class="ghost-btn">清空</button></div>
+              <pre id="log-view" class="scroll"></pre>
+            </div>
+            <button id="btn-launch" class="launch-btn"><span class="launch-icon">▶</span> 启动游戏</button>
+          </div>
+        </section>
+
+        <!-- ============ 版本 ============ -->
+        <section class="page" id="page-versions">
+          <div class="col-left">
+            <div class="card fill">
+              <div class="card-head"><span>已安装版本</span><button id="btn-vrefresh" class="ghost-btn">⟳</button></div>
+              <div id="installed-list" class="list scroll"></div>
+              <div class="vops">
+                <button class="ghost-btn" data-vop="rename">重命名</button>
+                <button class="ghost-btn" data-vop="copy">复制</button>
+                <button class="ghost-btn" data-vop="export">导出</button>
+                <button class="ghost-btn" data-vop="import">导入</button>
+                <button class="ghost-btn" data-vop="open">目录</button>
+                <button class="ghost-btn danger" data-vop="delete">删除</button>
+              </div>
+            </div>
+          </div>
+          <div class="col-right">
+            <div class="card">
+              <div class="card-head"><span>下载官方版本</span></div>
+              <div class="row">
+                <select id="dl-select" class="sel"><option value="">加载中…</option></select>
+                <label class="chk"><input id="dl-snapshot" type="checkbox" />含快照</label>
+                <button id="btn-dl" class="ghost-btn">下载</button>
+              </div>
+              <div id="dl-progress" class="progress-wrap hidden">
+                <div class="progress-bar"><div id="dl-fill"></div></div>
+                <div id="dl-text" class="progress-text"></div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-head"><span>自动安装加载器</span></div>
+              <div class="row">
+                <select id="loader-kind" class="sel">
+                  <option value="forge">Forge</option>
+                  <option value="fabric">Fabric</option>
+                  <option value="quilt">Quilt</option>
+                  <option value="neoforge">NeoForge</option>
+                  <option value="optifine">OptiFine</option>
+                </select>
+                <input id="loader-mc" class="inp" placeholder="MC 版本 如 1.20.1" spellcheck="false" />
+                <button id="btn-loadervers" class="ghost-btn">获取版本</button>
+              </div>
+              <div class="row">
+                <select id="loader-ver" class="sel"><option value="">先获取版本</option></select>
+                <button id="btn-loader-install" class="ghost-btn">安装</button>
+              </div>
+              <div id="loader-hint" class="row wrap"></div>
+              <div id="loader-log" class="install-log scroll"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><span>打开目录</span></div>
+              <div class="row wrap">
+                <button class="ghost-btn" data-open="mc">.minecraft</button>
+                <button class="ghost-btn" data-open="versions">versions</button>
+                <button class="ghost-btn" data-open="mods">mods</button>
+                <button class="ghost-btn" data-open="saves">saves</button>
+                <button class="ghost-btn" data-open="shaderpacks">shaderpacks</button>
+                <button class="ghost-btn" data-open="resourcepacks">resourcepacks</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ 实例 / 迁移 ============ -->
+        <section class="page" id="page-instances">
+          <div class="col-left">
+            <div class="card fill">
+              <div class="card-head"><span>实例</span>
+                <span class="row">
+                  <button class="ghost-btn" id="ins-new">＋ 新建</button>
+                  <button class="ghost-btn" id="ins-refresh">⟳</button>
+                </span></div>
+              <div id="ins-list" class="list scroll"></div>
+            </div>
+          </div>
+          <div class="col-right">
+            <div class="card">
+              <div class="card-head"><span>当前实例</span><span class="row"><button class="ghost-btn" id="ins-open">打开目录</button></span></div>
+              <div id="ins-detail" class="ins-detail"></div>
+              <div class="row wrap">
+                <button class="ghost-btn" id="ins-activate">切换为此实例</button>
+                <button class="ghost-btn" id="ins-dup">复制</button>
+                <button class="ghost-btn danger" id="ins-del">删除</button>
+              </div>
+            </div>
+            <div class="card fill">
+              <div class="card-head"><span>从其他启动器导入</span>
+                <span class="row">
+                  <button class="ghost-btn" id="mig-scan-btn">⟳ 扫描本机</button>
+                  <button class="ghost-btn" id="mig-pick">手动指定目录</button>
+                </span></div>
+              <div class="tabs">
+                <button class="tab active" data-mtab="found">发现的启动器</button>
+                <button class="tab" data-mtab="content">待导入内容</button>
+              </div>
+              <div class="tabpane active" id="mtab-found"><div id="mig-found" class="list scroll"></div></div>
+              <div class="tabpane" id="mtab-content">
+                <div id="mig-content" class="mig-content scroll"></div>
+                <div class="row wrap">
+                  <select id="mig-target" class="sel"><option value="">导入到…</option></select>
+                  <button class="ghost-btn" id="mig-import">导入勾选内容</button>
+                  <label class="chk"><input id="mig-overwrite" type="checkbox" />覆盖同名</label>
+                </div>
+                <div id="mig-log" class="install-log"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ 资源类页面 ============ -->
+        <section class="page" id="page-mods"><div class="col-right">
+          <div class="card guard-card">
+            <div class="card-head"><span>Mod 守卫</span>
+              <span class="row">
+                <button class="ghost-btn" id="mg-scan">⟳ 体检</button>
+                <button class="ghost-btn" id="mg-snap">打快照</button>
+                <button class="ghost-btn" id="mg-rollback">时光机</button>
+              </span></div>
+            <div id="mod-guard" class="guard-body scroll"></div>
+          </div>
+          <div class="card fill res-page" data-kind="mods"></div>
+        </div></section>
+        <section class="page" id="page-rps"><div class="card fill res-page" data-kind="rps"></div></section>
+        <section class="page" id="page-shaders"><div class="card fill res-page" data-kind="shaders"></div></section>
+
+        <!-- ============ 存档 ============ -->
+        <section class="page" id="page-saves"><div class="card fill">
+          <div class="card-head"><span>存档管理</span>
+            <span class="row"><button class="ghost-btn" id="btn-save-refresh">⟳</button><button class="ghost-btn" data-open="saves">打开目录</button></span></div>
+          <div id="saves-list" class="grid scroll"></div>
+        </div></section>
+
+        <!-- ============ 截图 ============ -->
+        <section class="page" id="page-shots"><div class="card fill">
+          <div class="card-head"><span>截图</span>
+            <span class="row">
+              <button class="ghost-btn" id="btn-shot-refresh">⟳</button>
+              <button class="ghost-btn" id="btn-shot-organize" data-i18n="shots.organize">按日期整理</button>
+              <button class="ghost-btn" data-open="screenshots">打开目录</button>
+            </span></div>
+          <div id="shots-stats" class="tip"></div>
+          <div id="shots-list" class="shots scroll"></div>
+        </div></section>
+
+        <!-- ============ 账户 ============ -->
+        <section class="page" id="page-account"><div class="card fill scroll">
+          <div class="card-head"><span>账户管理</span>
+            <span class="row"><button class="ghost-btn" id="btn-acc-refresh" title="刷新列表与头像">⟳</button></span></div>
+          <div class="acc-current">
+            <div class="avatar big" id="acc-avatar">?</div>
+            <div>
+              <div class="pname" id="acc-name2">未登录</div>
+              <div class="ptype" id="acc-type2">离线模式</div>
+              <div class="puuid" id="acc-uuid"></div>
+            </div>
+          </div>
+
+          <div class="set-group">
+            <div class="set-title">已保存账户</div>
+            <div id="acc-list" class="acc-grid"></div>
+            <p class="tip">登录结果会追加到这里而不是覆盖。切换后所有新开的游戏都用这个账户；并行多开靠「不同账户 + 不同实例」组合。</p>
+          </div>
+
+          <div class="set-group">
+            <div class="set-title">登录 / 添加账户</div>
+            <div class="tabs">
+              <button class="tab active" data-tab="offline">离线</button>
+              <button class="tab" data-tab="ygg">外置登录</button>
+              <button class="tab" data-tab="ms">微软登录</button>
+            </div>
+            <div class="tabpane active" id="tab-offline">
+              <div class="row"><input id="off-name" class="inp" placeholder="玩家名（1-16 位）" maxlength="16" spellcheck="false" /><button id="btn-off-login" class="primary-btn">添加离线账户</button></div>
+              <p class="tip">离线登录无需网络，UUID 与服务器离线模式算法一致，可直接进入关闭正版验证的服务器。</p>
+            </div>
+            <div class="tabpane" id="tab-ygg">
+              <div class="row"><input id="ygg-server" class="inp" placeholder="认证服务器 如 https://xxx.com/api/yggdrasil" spellcheck="false" /></div>
+              <div class="row"><input id="ygg-user" class="inp" placeholder="邮箱 / 用户名" spellcheck="false" /><input id="ygg-pass" class="inp" type="password" placeholder="密码" /></div>
+              <div class="row">
+                <input id="authlib-jar" class="inp" placeholder="authlib-injector.jar 路径（可选）" spellcheck="false" />
+                <button id="btn-authlib-pick" class="ghost-btn">浏览</button>
+                <button id="btn-ygg-login" class="primary-btn">登录</button>
+              </div>
+              <p class="tip">外置登录启动游戏时需注入 authlib-injector，请指定本地 jar 路径。</p>
+            </div>
+            <div class="tabpane" id="tab-ms">
+              <div class="row"><input id="ms-client" class="inp" placeholder="Client ID（可留空用默认值）" spellcheck="false" /><button id="btn-ms-login" class="primary-btn">开始设备码登录</button></div>
+              <div id="ms-code-box" class="code-box hidden">
+                <p>请在浏览器打开：<b id="ms-url"></b></p>
+                <div class="code" id="ms-code">----</div>
+                <p class="tip">输入代码并授权后将自动完成登录。</p>
+              </div>
+              <p class="tip">微软登录为实验功能，依赖 login.microsoftonline.com 与 Xbox Live 网络可达性。</p>
+            </div>
+          </div>
+
+          <div class="set-group">
+            <div class="set-title">并行多开
+              <span class="row"><button class="ghost-btn" id="btn-ml-refresh">⟳</button><button class="ghost-btn" id="btn-ml-stopall">全部结束</button></span>
+            </div>
+            <div id="ml-list" class="list"></div>
+            <p class="tip">同一个「实例 + 账户」组合不会被重复启动：同目录两个客户端会互写 <code>options.txt</code> 与 <code>logs/latest.log</code>，
+              同账户还会在服务端互相踢下线。要同时开多个，请给它们分配不同的实例（见「实例」页）。</p>
+          </div>
+        </div></section>
+
+        <!-- ============ JVM 调优实验室 ============ -->
+        <section class="page" id="page-lab"><div class="card fill scroll">
+          <div class="card-head"><span>JVM A/B 调优实验室</span></div>
+          <p class="tip">同一版本、同一内存下，用两套 JVM 参数各跑几次，直接比「到主菜单耗时」「GC 停顿」「内存峰值」。
+            就绪判定用「主菜单阶段日志静默 N 秒」，跨版本通用。</p>
+          <div id="lab-advice" class="lab-advice"></div>
+          <div class="set-group">
+            <div class="set-title">测试配置</div>
+            <div class="set-row"><label>A 组</label><select id="lab-a" class="sel"></select></div>
+            <div class="set-row"><label>B 组</label><select id="lab-b" class="sel"></select></div>
+            <div class="set-row"><label>分配内存</label>
+              <span class="row"><input id="lab-mem" class="inp tiny" type="number" min="2" max="64" step="1" value="4" /> GB
+              <span class="tip inline" id="lab-mem-hint"></span></span></div>
+            <div class="set-row"><label>每组轮数</label><input id="lab-rounds" class="inp tiny" type="number" min="1" max="5" step="1" value="2" /></div>
+            <div class="set-row"><label>就绪判定</label><span class="row">日志静默 <input id="lab-quiet" class="inp tiny" type="number" min="3" max="30" value="6" /> 秒
+              · 就绪后 <input id="lab-hold" class="inp tiny" type="number" min="0" max="60" value="8" /> 秒自动关闭</span></div>
+            <div class="set-row"><label></label>
+              <span class="row"><button id="btn-lab-run" class="primary-btn">开始 A/B 测试</button>
+              <button id="btn-lab-abort" class="ghost-btn">中止</button>
+              <span id="lab-status" class="lab-status"></span></span></div>
+          </div>
+          <div id="lab-result" class="lab-result"></div>
+          <div class="set-group">
+            <div class="set-title">历史（按预设聚合）</div>
+            <div id="lab-history" class="list scroll"></div>
+            <div class="row"><button class="ghost-btn" id="btn-lab-refresh">⟳ 刷新</button><button class="ghost-btn" id="btn-lab-clear">清空历史</button></div>
+          </div>
+        </div></section>
+
+        <!-- ============ 日志 ============ -->
+        <section class="page" id="page-logs"><div class="card fill">
+          <div class="card-head"><span>日志与崩溃报告</span>
+            <span class="row"><button class="ghost-btn" id="btn-log-refresh">⟳</button><button class="ghost-btn" data-open="crash-reports">打开目录</button></span></div>
+          <div class="split">
+            <div id="crash-list" class="list scroll"></div>
+            <pre id="crash-view" class="scroll">选择一个日志/崩溃报告查看内容</pre>
+          </div>
+        </div></section>
+
+        <!-- ============ 设置 ============ -->
+        <section class="page" id="page-settings"><div class="card fill scroll">
+          <div class="card-head"><span>设置</span></div>
+          <div class="set-group">
+            <div class="set-title">游戏</div>
+            <div class="set-row"><label>.minecraft 目录</label><div class="path-row"><input id="st-mcdir" class="inp" spellcheck="false" /><button id="btn-st-mcdir" class="ghost-btn">浏览</button></div></div>
+            <div class="set-row"><label>Java 路径</label><div class="path-row"><input id="st-java" class="inp" placeholder="留空自动检测" spellcheck="false" /><button id="btn-st-java" class="ghost-btn">浏览</button><button id="btn-st-javadetect" class="ghost-btn">自动检测</button></div></div>
+            <div class="set-row"><label>额外 JVM 参数</label><input id="st-jvm" class="inp" placeholder="如 -XX:+UseG1GC" spellcheck="false" /></div>
+            <div class="set-row"><label>启动后</label><label class="chk"><input id="st-hide" type="checkbox" />隐藏启动器窗口</label></div>
+            <div class="set-row"><label>版本隔离</label><label class="chk"><input id="st-isolation" type="checkbox" />为每个版本使用独立游戏目录</label></div>
+          </div>
+          <div class="set-group">
+            <div class="set-title">下载</div>
+            <div class="set-row"><label>下载源</label>
+              <select id="st-source" class="sel">
+                <option value="official">官方（失败自动切国内镜像）</option>
+                <option value="bmclapi">BMCLAPI 国内镜像优先</option>
+              </select>
+            </div>
+            <div class="set-row"><label>并发线程</label><input id="st-threads" class="inp tiny" type="number" min="1" max="64" value="16" /></div>
+          </div>
+          <div class="set-group">
+            <div class="set-title">外观</div>
+            <div class="set-row"><label>主题</label>
+              <select id="st-theme" class="sel">
+                <option value="dark">深色玻璃</option>
+                <option value="light">浅色玻璃</option>
+                <option value="auto">跟随系统</option>
+              </select>
+            </div>
+            <div class="set-row"><label>窗口不透明度</label><input id="st-opacity" type="range" min="60" max="100" step="1" value="100" /><span id="opacity-label">100%</span></div>
+            <div class="set-row"><label>动画效果</label><label class="chk"><input id="st-anim" type="checkbox" checked />启用过渡动画</label></div>
+          </div>
+          <div class="set-group">
+            <div class="set-title">游戏内设置（options.txt）</div>
+            <div class="set-row"><label>视场角 FOV</label><input id="op-fov" class="inp tiny" type="number" min="30" max="110" /></div>
+            <div class="set-row"><label>渲染距离</label><input id="op-rd" class="inp tiny" type="number" min="2" max="32" /></div>
+            <div class="set-row"><label>图像品质</label>
+              <select id="op-gfx" class="sel"><option value="0">流畅</option><option value="1">高品质</option><option value="2">极佳</option></select>
+            </div>
+            <div class="set-row"><label>平滑光照</label><select id="op-ao" class="sel"><option value="0">关闭</option><option value="1">最小</option><option value="2">最大</option></select></div>
+            <div class="set-row"><button id="btn-op-save" class="primary-btn">保存游戏设置</button><span id="op-hint" class="tip"></span></div>
+          </div>
+          <div class="set-group">
+            <div class="set-title" data-i18n="set.system">系统与更新</div>
+            <div class="set-row"><label>启动项</label><label class="chk"><input id="sys-autostart" type="checkbox" /><span data-i18n="sys.autostart">开机自动启动</span></label></div>
+            <div class="set-row"><label>托盘</label><label class="chk"><input id="sys-mintray" type="checkbox" /><span data-i18n="sys.tray">关闭时最小化到托盘</span></label></div>
+            <div class="set-row"><label data-i18n="sys.shortcut">快捷方式</label>
+              <span class="row">
+                <button id="btn-sc-desktop" class="ghost-btn" data-i18n="sys.shortcutDesktop">桌面</button>
+                <button id="btn-sc-start" class="ghost-btn" data-i18n="sys.shortcutStart">开始菜单</button>
+                <button id="btn-sc-del" class="ghost-btn danger" data-i18n="common.delete">移除</button>
+                <span id="sc-hint" class="tip"></span>
+              </span>
+            </div>
+            <div class="set-row"><label data-i18n="sys.language">界面语言</label><select id="sys-lang" class="sel"></select></div>
+            <div class="set-row"><label data-i18n="sys.updateFeed">更新源</label>
+              <div class="path-row"><input id="sys-feed" class="inp" placeholder="https://…/update.json" spellcheck="false" />
+              <button id="btn-update-check" class="ghost-btn" data-i18n="sys.checkUpdate">检查更新</button></div>
+            </div>
+            <div class="set-row"><label></label><span id="update-result" class="tip"></span></div>
+          </div>
+          <div class="set-group">
+            <div class="set-title">Java 运行环境</div>
+            <p class="tip">没装 Java 或版本不够时，可以直接下载一份官方 Temurin 运行环境（装到启动器目录，不动系统 Java）。</p>
+            <div class="set-row"><label>自动下载</label>
+              <span class="row">
+                <select id="java-major" class="sel">
+                  <option value="21">Java 21（MC 1.20.5+）</option>
+                  <option value="17">Java 17（MC 1.18–1.20.4）</option>
+                  <option value="8">Java 8（MC 1.16 及更早）</option>
+                </select>
+                <button id="btn-java-dl" class="primary-btn">下载并安装</button>
+                <span id="java-dl-hint" class="tip"></span>
+              </span>
+            </div>
+            <div id="java-installed" class="list"></div>
+          </div>
+        </div></section>
+
+        <!-- ============ 关于 ============ -->
+        <section class="page" id="page-about"><div class="card fill">
+          <div class="about">
+            <img class="about-logo" src="assets/logo.png" alt="Pebble Lunchar" draggable="false" />
+            <h2>PEBBLE LUNCHAR</h2>
+            <p class="sub">Minecraft 离线启动器</p>
+            <div class="about-info" id="about-info"></div>
+            <div class="row wrap">
+              <button class="ghost-btn" id="btn-open-appdir">打开启动器目录</button>
+              <button class="ghost-btn" id="btn-open-mcsite">Minecraft 官网</button>
+            </div>
+            <p class="tip">功能覆盖：离线/外置/微软账户、版本下载、Forge/Fabric/Quilt/NeoForge/OptiFine 自动安装、
+              Mod/资源包/光影管理、存档与截图管理、崩溃日志查看、版本隔离与导入导出。<br />
+              按需求不包含联机相关功能（局域网/P2P 联机）。</p>
+          </div>
+        </div></section>
+        <!-- ============ 世界（V4 第一组 + 第二组） ============ -->
+        <section class="page" id="page-world"><div class="world-wrap">
+          <div class="tabs" id="world-tabs">
+            <button class="tab active" data-wtab="ver">版本控制</button>
+            <button class="tab" data-wtab="merge">区域搬运</button>
+            <button class="tab" data-wtab="map">地图预览</button>
+            <button class="tab" data-wtab="db">全局检索</button>
+          </div>
+
+          <!-- 版本控制 -->
+          <div class="wtab active" id="wtab-ver"><div class="col-left">
+            <div class="card">
+              <div class="card-head"><span>选择存档目录</span>
+                <span class="row"><input id="wv-dir" class="inp" placeholder="Minecraft 存档目录（含 level.dat）" spellcheck="false" /><button class="ghost-btn" id="wv-browse">浏览</button><button class="ghost-btn" id="wv-refresh">刷新</button></span></div>
+              <div id="wv-status" class="tip">先选择要纳入版本控制的存档目录。</div>
+            </div>
+            <div class="card">
+              <div class="card-head"><span>提交</span>
+                <span class="row"><input id="wv-msg" class="inp" placeholder="本次改动说明（可选）" spellcheck="false" /><button class="ghost-btn" id="wv-track">纳入跟踪</button><button class="primary-btn" id="wv-commit">提交</button></span></div>
+            </div>
+          </div><div class="col-right">
+            <div class="card fill scroll">
+              <div class="card-head"><span>提交历史</span><span class="row"><button class="ghost-btn" id="wv-checkout">回滚到选中</button><button class="ghost-btn" id="wv-gc">清理孤儿对象</button></span></div>
+              <div class="row wrap">
+                <label>分支</label><select id="wv-branch" class="sel"></select>
+                <input id="wv-newbranch" class="inp tiny" placeholder="新分支名" />
+                <button class="ghost-btn" id="wv-branch-create">建分支</button>
+                <button class="ghost-btn" id="wv-branch-switch">切到</button>
+              </div>
+              <div id="wv-log" class="list"></div>
+            </div>
+          </div></div>
+
+          <!-- 区域搬运 -->
+          <div class="wtab stack" id="wtab-merge"><div class="card">
+            <div class="card-head"><span>选择源 / 目标存档目录</span></div>
+            <div class="row wrap"><label>源</label><input id="wm-from" class="inp" placeholder="源存档目录" spellcheck="false" /><button class="ghost-btn" id="wm-from-browse">浏览</button></div>
+            <div class="row wrap"><label>目标</label><input id="wm-to" class="inp" placeholder="目标存档目录" spellcheck="false" /><button class="ghost-btn" id="wm-to-browse">浏览</button></div>
+            <div class="row wrap"><label>区域(方块坐标)</label>
+              <input id="wm-x1" class="inp tiny" type="number" placeholder="x1" /><input id="wm-z1" class="inp tiny" type="number" placeholder="z1" />
+              <input id="wm-x2" class="inp tiny" type="number" placeholder="x2" /><input id="wm-z2" class="inp tiny" type="number" placeholder="z2" />
+            </div>
+            <div class="row wrap"><label>模式</label>
+              <select id="wm-mode" class="sel"><option value="replace">覆盖同名区块</option><option value="skip-existing">跳过已有</option></select>
+              <label class="chk"><input id="wm-ent" type="checkbox" checked />同步实体</label>
+              <button class="ghost-btn" id="wm-plan">预览</button><button class="primary-btn" id="wm-apply">执行搬运</button>
+            </div>
+          </div><div class="card fill scroll">
+            <div class="card-head"><span>预览 / 结果</span></div>
+            <div id="wm-result" class="install-log"></div>
+          </div></div>
+
+          <!-- 地图预览 -->
+          <div class="wtab stack" id="wtab-map"><div class="card">
+            <div class="card-head"><span>选择存档目录</span>
+              <span class="row"><input id="wmp-dir" class="inp" placeholder="Minecraft 存档目录" spellcheck="false" /><button class="ghost-btn" id="wmp-browse">浏览</button><button class="primary-btn" id="wmp-scan">扫描</button></span></div>
+            <div class="row wrap"><label>图层</label>
+              <select id="wmp-layer" class="sel"><option value="blocks">顶层方块</option><option value="height">表面高度</option><option value="biome">生物群系</option></select>
+              <label class="chk"><input id="wmp-hot" type="checkbox" checked />标出实体热点</label>
+              <span class="tip inline" id="wmp-info"></span>
+            </div>
+          </div><div class="card fill">
+            <canvas id="wmp-canvas" class="world-canvas"></canvas>
+            <div id="wmp-tip" class="canvas-tip"></div>
+          </div></div>
+
+          <!-- 全局检索 -->
+          <div class="wtab stack" id="wtab-db"><div class="card">
+            <div class="card-head"><span>选择 .minecraft 目录</span>
+              <span class="row"><input id="wdb-dir" class="inp" placeholder=".minecraft 目录" spellcheck="false" /><button class="ghost-btn" id="wdb-browse">浏览</button><button class="ghost-btn" id="wdb-index">索引全部存档</button></span></div>
+            <div class="row wrap"><input id="wdb-q" class="inp" placeholder="搜索物品或实体，如「附魔」「钻石剑」「阿强」" spellcheck="false" />
+              <button class="ghost-btn" id="wdb-search">搜索</button><span class="tip inline" id="wdb-info"></span>
+            </div>
+          </div><div class="card">
+            <div class="card-head"><span>统计</span></div>
+            <div id="wdb-stats" class="tip"></div>
+          </div><div class="card fill scroll">
+            <div class="card-head"><span>检索结果</span></div>
+            <div id="wdb-results" class="list"></div>
+          </div></div>
+        </div></section>
+
+      </main>
+    </div>
+
+    <!-- 通用弹层：时光机 / 体检报告等都用它 -->
+    <div id="modal" class="modal hidden">
+      <div class="modal-mask" data-close="1"></div>
+      <div class="modal-box">
+        <div class="modal-head"><span id="modal-title"></span><button class="ghost-btn" id="modal-close">✕</button></div>
+        <div id="modal-body" class="scroll"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="i18n.js"></script>
+  <script src="i18n-ui.js"></script>
+  <script src="i18n-pages.js"></script>
+  <script src="pages.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>

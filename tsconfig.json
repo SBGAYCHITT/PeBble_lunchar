@@ -1,0 +1,61 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+
+    /* 渐进式：先把真正的错误抓出来，不因为缺标注就报错 */
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "skipLibCheck": true,
+
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+
+    "types": ["node"],
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": [
+    "types/**/*.d.ts",
+    "renderer.js",
+    "pages.js",
+    "nbt.js",
+    "anvil.js",
+    "worldver.js",
+    "worldmerge.js",
+    "worldmap.js",
+    "worlddb.js",
+    "i18n.js",
+    "updater.js",
+    "screenshots.js",
+    "sysconf.js",
+    "tray.js",
+    "javadl.js",
+    "jvmlab.js",
+    "multilaunch.js",
+    "loaders.js",
+    "packinfo.js",
+    "modguard.js",
+    "savetimemachine.js",
+    "instances.js",
+    "avatar.js",
+    "fsutil.js",
+    "crashdoctor.js",
+    "mcapi.js",
+    "zipread.js",
+    "accounts.js",
+    "securestore.js",
+    "modstore.js",
+    "migrate.js",
+    "launcher.js",
+    "downloader.js"
+  ],
+  "exclude": ["node_modules", "dist", "preload.js", "main.js", "make-exe.js"]
+}

@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: 单测 + 类型检查
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # 一个系统挂了也让它跑完，方便一次性看到全部结果
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # 没有锁文件时 npm ci 会直接失败，所以用 install。
+      # electron 体积大且国内常拉不动，设镜像 + 失败不阻塞单测。
+      - name: 安装依赖
+        run: npm install --no-audit --no-fund
+        env:
+          ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+          ELECTRON_BUILDER_BINARIES_MIRROR: https://npmmirror.com/mirrors/electron-builder-binaries/
+        continue-on-error: true
+
+      - name: 安装 TypeScript（typecheck 需要）
+        run: npm install --no-save --no-audit --no-fund typescript@^5.9.3
+
+      - name: 单元测试
+        run: npm test
+
+      - name: JSDoc 类型检查
+        run: npm run typecheck
+
+  # 冒烟要真 Electron，只有装得上 electron 的环境才有意义；
+  # 且 Linux 需要 xvfb，这里只在 Windows 上跑。
+  smoke:
+    name: Electron 冒烟
+    runs-on: windows-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 安装依赖
+        run: npm install --no-audit --no-fund
+        env:
+          ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+
+      - name: 冒烟
+        run: npm run test:e2e
