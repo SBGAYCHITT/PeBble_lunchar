@@ -3,6 +3,24 @@
 Minecraft 启动器（离线模式为主），圆滑 + 半透明毛玻璃界面，打包为免安装单文件 .exe。
 功能对标 PCL2，**不含联机相关功能**（局域网联机 / P2P 联机）。
 
+[![Release](https://img.shields.io/github/v/release/SBGAYCHITT/PeBble_lunchar?label=release)](https://github.com/SBGAYCHITT/PeBble_lunchar/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+> **下载**：前往 [Releases 页面](https://github.com/SBGAYCHITT/PeBble_lunchar/releases) 下载最新的
+> `Pebble-Lunchar.exe`（免安装单文件，双击即用，支持 Windows 10/11 x64）。
+
+## Code signing policy
+
+本项目使用 SignPath Foundation 提供的免费代码签名服务：
+
+- **Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org)**
+- Roles / 角色：
+  - Committers and reviewers: [SBGAYCHITT](https://github.com/SBGAYCHITT)
+  - Approvers: [SBGAYCHITT](https://github.com/SBGAYCHITT)
+- Privacy policy / 隐私政策：本程序**不收集、不上传任何用户数据**。
+  This program will not transfer any information to other networked systems
+  unless specifically requested by the user or the person installing or operating it.
+
 ## 功能清单
 
 ### 启动
