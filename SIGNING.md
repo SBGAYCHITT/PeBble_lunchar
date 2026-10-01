@@ -54,8 +54,10 @@ npm run sign:dev           # 用这张证书签 dist 产物
 发给愿意配合的测试者（把 `.signing/dev-cert.cer` 一并发过去）。
 
 微软官方口径是自签名**不满足** SAC 的信任要求（它只认根证书在
-Microsoft Trusted Root Program 里的 CA）。但实测在本机信任层级下确实放行了 ——
-这属于「民间做法」，别当成保票，换机器/换系统版本前先跑一次 `npm run sac` 复验。
+Microsoft Trusted Root Program 里的 CA）。**实测已确认自签名过不了 SAC**：
+SAC 处于 Evaluation（评估）阶段时放行较松，看似能用；转 ON（强制）后一律拦
+（本机 9/27 14:36 与 10/1 14:20 事件日志均有 `3118 Smart App Control Block`）。
+所以自签名**只适合本机开发调试**（配合临时关闭 SAC），**不要用于分发**。
 
 **需要管理员的那一步**：SAC 走内核代码完整性校验，真正生效的是「本机」信任存储。
 如果 `npm run sac` 显示仍被拦，用**管理员** PowerShell 再跑一次：
@@ -118,6 +120,24 @@ powershell -ExecutionPolicy Bypass -File scripts\dev-cert.ps1 -Machine
      （卡在 `WaitingForApproval` 时去后台点 Approve）→ 下载签名后的 zip 解压覆盖
    - 再把外层 `Pebble-Lunchar.exe` 打成 zip → 同样流程签一遍
 6. 想看脚本干到哪一步：`node scripts/signpath-sign.js` 会打印提交 / 状态 / 下载全过程
+
+**在 GitHub Actions 里自动签（推荐）** —— 仓库已含 `.github/workflows/release.yml`：
+打一个 `v*` tag（或手动触发 workflow）就会自动「构建 → 打包 → SignPath 签名 → 发布 Release」。
+
+需要在仓库 **Settings → Secrets and variables → Actions** 里配这几个 Secret：
+
+| Secret 名 | 值 |
+|---|---|
+| `SIGNPATH_API_TOKEN` | SignPath 后台签发的 API token（CI 用户） |
+| `SIGNPATH_ORG_ID` | 你的 organizationId |
+| `SIGNPATH_PROJECT_SLUG` | 项目 slug（如 `pebble-lunchar`） |
+| `SIGNPATH_POLICY_SLUG` | 签名策略 slug（如 `release-signing`） |
+| `SIGNPATH_ARTIFACT_CONFIG_SLUG` | 构件配置 slug（可选，不填用项目默认） |
+
+> ⚠️ 工作流里 `SKIP_SIGN=1` + `SIGNPATH=1`：跳过本地自签名，只走 SignPath，
+> 避免最终产物被自签名"污染"（自签名对分发是负作用）。
+> ⚠️ SignPath OSS 每次签名都要**人工批准**，CI 会轮询等待（最长 30 分钟）——
+> 触发后请尽快去 SignPath 后台 Signing Requests 点 **Approve**，否则该步会超时失败。
 
 > 注意：SignPath 给的是 **OV（非 EV）**。对 SAC 来说 OV 需要信誉，但 SignPath Foundation 本身是被
 > 广泛使用的发行方，其证书通常已有足够信誉；若极早期个别机器仍报，多分发几次、积累信誉后即稳定。
