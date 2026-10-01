@@ -1,0 +1,97 @@
+name: Release
+
+# 打 tag（v*）时触发：构建 Electron 应用 -> 打包单文件 exe -> SignPath 签名 -> 发布 Release。
+# SignPath 签名需要人工批准（OSS 条款强制），所以 workflow_dispatch 也支持手动触发以便重试。
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '已有 tag（手动补签/重发时填写，如 v3.0.0）'
+        required: false
+
+permissions:
+  contents: write   # 发布 Release 需要
+
+jobs:
+  build-and-sign:
+    name: 构建 + 签名 + 发布
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # 没有锁文件时 npm ci 会失败，所以用 install；electron 体积大，走国内镜像更稳。
+      - name: 安装依赖
+        run: npm install --no-audit --no-fund
+        env:
+          ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+          ELECTRON_BUILDER_BINARIES_MIRROR: https://npmmirror.com/mirrors/electron-builder-binaries/
+
+      - name: 单元测试
+        run: npm test
+
+      - name: 类型检查
+        run: npm run typecheck
+
+      # ① electron-builder 产出 dist/win-unpacked（含 resources/app.asar）
+      - name: 打包 win-unpacked
+        run: node node_modules/electron-builder/out/cli/cli.js --win --x64 --dir
+
+      # ② NSIS 编译单文件安装包；带 SKIP_SIGN=1 时只做本地自签名跳过，
+      #    真正的签名交给下一步的 SignPath（避免自签名污染最终产物）。
+      - name: 编译单文件 exe
+        run: node make-exe.js
+        env:
+          SKIP_SIGN: '1'          # 跳过本地自签名，改用 SignPath
+          SIGNPATH: '1'           # 走 SignPath 分支：打 zip -> 提交签名 -> 解压覆盖
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORG_ID: ${{ secrets.SIGNPATH_ORG_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ secrets.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_POLICY_SLUG: ${{ secrets.SIGNPATH_POLICY_SLUG }}
+          SIGNPATH_ARTIFACT_CONFIG_SLUG: ${{ secrets.SIGNPATH_ARTIFACT_CONFIG_SLUG }}
+        # ⚠️ SignPath OSS 每次签名都要人工批准。CI 会一直轮询直到超时（30 分钟），
+        #    所以请在触发后尽快去 SignPath 后台 Approve，否则这一步会失败。
+        timeout-minutes: 40
+
+      - name: 校验签名
+        shell: pwsh
+        run: |
+          $exe = "dist/Pebble-Lunchar.exe"
+          if (-not (Test-Path $exe)) { Write-Error "产物不存在: $exe"; exit 1 }
+          $sig = Get-AuthenticodeSignature $exe
+          Write-Host ("Status : " + $sig.Status)
+          Write-Host ("Signer : " + $sig.SignerCertificate.Subject)
+          Write-Host ("Size   : " + [math]::Round((Get-Item $exe).Length / 1MB, 1) + " MB")
+          if ($sig.Status -ne "Valid") { Write-Error "签名无效，终止发布"; exit 1 }
+
+      - name: 上传构建产物（Artifact）
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pebble-Lunchar-signed
+          path: dist/Pebble-Lunchar.exe
+          if-no-files-found: error
+
+      - name: 发布到 Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          Write-Host "发布 tag: $tag"
+          # 如果 Release 不存在则创建，已存在则上传/覆盖资产
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag "dist/Pebble-Lunchar.exe" `
+              --title "Pebble Lunchar $tag" `
+              --notes "Minecraft 离线启动器（免安装单文件，双击即用，Windows 10/11 x64）。`n`n### Code signing policy`nFree code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org)"
+          } else {
+            gh release upload $tag "dist/Pebble-Lunchar.exe" --clobber
+          }
