@@ -41,7 +41,8 @@ const DOMAINS = [
   './instance',
   './migrate',
   './system',
-  './world'
+  './world',
+  './perf'
 ];
 
 /**

@@ -379,6 +379,21 @@ body.theme-light .save-card { background: rgba(255, 255, 255, .35); }
 .code-box.hidden { display: none; }
 .code-box .code { font-size: 26px; font-weight: 700; letter-spacing: 6px; color: var(--accent); margin: 8px 0; font-family: Consolas, monospace; }
 
+/* ---------- 性能页（V4 第三组） ---------- */
+/* 诊断条目按严重度着色：左侧竖条 + 标题色，一眼扫出哪些必须处理 */
+.item.sev-fatal { border-left: 3px solid #e5534b; }
+.item.sev-fatal .t { color: #e5534b; }
+.item.sev-error { border-left: 3px solid #e0913a; }
+.item.sev-error .t { color: #e0913a; }
+.item.sev-warn { border-left: 3px solid #d9b23c; }
+.item.sev-warn .t { color: #d9b23c; }
+.item.sev-info { border-left: 3px solid var(--text-dim); }
+.item .advice { margin: 8px 0 0; padding-left: 18px; font-size: 12px; color: var(--text-dim); line-height: 1.7; }
+.item .advice li { margin-bottom: 3px; }
+#pt-args { white-space: pre-wrap; word-break: break-all; font-family: Consolas, monospace; font-size: 12px; }
+#pt-reasons, #pt-warnings { line-height: 1.8; }
+#pt-warnings:not(:empty) { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: rgba(224, 145, 58, 0.12); }
+
 /* ---------- 日志页 ---------- */
 .split { flex: 1; display: grid; grid-template-columns: 260px 1fr; gap: 12px; min-height: 0; }
 

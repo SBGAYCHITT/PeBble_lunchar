@@ -47,6 +47,7 @@
         <button class="nav-item" data-page="settings"><span class="ni">⚙</span><span data-i18n="nav.settings">设置</span></button>
         <button class="nav-item" data-page="about"><span class="ni">?</span><span data-i18n="nav.about">关于</span></button>
         <button class="nav-item" data-page="world"><span class="ni">🌐</span><span data-i18n="nav.world">世界</span></button>
+        <button class="nav-item" data-page="perf"><span class="ni">📈</span><span data-i18n="nav.perf">性能</span></button>
       </nav>
 
       <main id="main">
@@ -509,6 +510,65 @@
           </div><div class="card fill scroll">
             <div class="card-head"><span>检索结果</span></div>
             <div id="wdb-results" class="list"></div>
+          </div></div>
+        </div></section>
+
+        <section class="page" id="page-perf"><div class="world-wrap">
+          <div class="tabs" id="perf-tabs">
+            <button class="tab active" data-ptab="diag">性能诊断</button>
+            <button class="tab" data-ptab="tune">自动调参</button>
+            <button class="tab" data-ptab="rules">检查项</button>
+          </div>
+
+          <!-- 性能诊断 -->
+          <div class="wtab active" id="ptab-diag"><div class="col-left">
+            <div class="card">
+              <div class="card-head"><span>诊断数据来源</span>
+                <span class="row"><button class="primary-btn" id="pd-run">开始诊断</button></span></div>
+              <div class="row wrap"><label>游戏目录</label>
+                <input id="pd-gamedir" class="inp" placeholder=".minecraft 或版本隔离后的游戏目录" spellcheck="false" />
+                <button class="ghost-btn" id="pd-gamedir-browse">浏览</button></div>
+              <div class="row wrap"><label>存档目录</label>
+                <input id="pd-savedir" class="inp" placeholder="可选：用来统计区块 / 实体热点" spellcheck="false" />
+                <button class="ghost-btn" id="pd-savedir-browse">浏览</button></div>
+              <div class="row wrap"><label>Java 主版本</label>
+                <input id="pd-java" class="inp tiny" type="number" placeholder="如 17" />
+                <label>-Xmx(MB)</label><input id="pd-xmx" class="inp tiny" type="number" placeholder="留空则从日志读取" /></div>
+              <div class="tip">诊断依据：latest.log 尾部（GC 停顿 / OOM / tick 落后）+ 存档规模 + 本机配置。全程本地读取，不上传任何数据。</div>
+            </div>
+            <div class="card">
+              <div class="card-head"><span>本机配置</span></div>
+              <div id="pd-profile" class="tip">点击「开始诊断」后显示。</div>
+            </div>
+          </div><div class="col-right">
+            <div class="card fill scroll">
+              <div class="card-head"><span>诊断结果</span><span id="pd-score" class="tip inline"></span></div>
+              <div id="pd-summary" class="tip">尚未诊断。</div>
+              <div id="pd-findings" class="list"></div>
+            </div>
+          </div></div>
+
+          <!-- 自动调参 -->
+          <div class="wtab stack" id="ptab-tune"><div class="card">
+            <div class="card-head"><span>按机器与存档规模生成 JVM 参数</span>
+              <span class="row"><label>Java 主版本</label><input id="pt-java" class="inp tiny" type="number" placeholder="如 17" />
+                <button class="primary-btn" id="pt-run">生成建议</button></span></div>
+            <div class="row wrap"><label>存档目录</label>
+              <input id="pt-savedir" class="inp" placeholder="可选：让建议贴合存档规模" spellcheck="false" />
+              <button class="ghost-btn" id="pt-savedir-browse">浏览</button></div>
+            <div class="tip">只生成建议，<b>不会自动改配置</b> —— 参数改错会导致游戏起不来，请确认后自行填入「设置 → 额外 JVM 参数」。</div>
+          </div><div class="card fill scroll">
+            <div class="card-head"><span>建议参数</span><span class="row"><button class="ghost-btn" id="pt-copy">复制参数</button></span></div>
+            <div id="pt-args" class="install-log"></div>
+            <div id="pt-reasons" class="tip"></div>
+            <div id="pt-warnings" class="tip"></div>
+          </div></div>
+
+          <!-- 检查项 -->
+          <div class="wtab stack" id="ptab-rules"><div class="card fill scroll">
+            <div class="card-head"><span>诊断规则库</span>
+              <span class="row"><button class="ghost-btn" id="pr-load">加载</button></span></div>
+            <div id="pr-list" class="list"></div>
           </div></div>
         </div></section>
 

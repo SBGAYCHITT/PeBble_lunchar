@@ -1,7 +1,7 @@
 ﻿!define APPNAME "Pebble Lunchar"
 !define EXENAME "Pebble Lunchar.exe"
 !define INSTDIRNAME "PebbleLunchar"
-!define BUILDVER "3.0.0.202610010608"
+!define BUILDVER "3.0.0.202610020317"
 
 Name "${APPNAME}"
 OutFile "C:\Users\Felix\WorkBuddy\2026-09-12-10-14-18\pefebeb-lunchar\dist\Pebble-Lunchar.exe"

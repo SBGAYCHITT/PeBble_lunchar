@@ -186,6 +186,13 @@ contextBridge.exposeInMainWorld('api', {
   worldMapRegions: (saveDir, dim) => ipcRenderer.invoke('world-map-regions', saveDir, dim),
   worldDbIndex: (gameDir) => ipcRenderer.invoke('world-db-index', gameDir),
   worldDbSearch: (gameDir, query) => ipcRenderer.invoke('world-db-search', gameDir, query),
+
+  /* 性能：诊断 / 自动调参 */
+  perfProfile: () => ipcRenderer.invoke('perf-profile'),
+  perfDiagnose: (o) => ipcRenderer.invoke('perf-diagnose', o),
+  perfAutotune: (o) => ipcRenderer.invoke('perf-autotune', o),
+  perfParseArgs: (logText) => ipcRenderer.invoke('perf-parse-args', logText),
+  perfRules: () => ipcRenderer.invoke('perf-rules'),
   // 注：退出码统一走 onLaunchState({state:'exited', code})，不再单独发 'game-exit'
   onLaunchState: (cb) => ipcRenderer.on('launch-state', (_e, s) => cb(s)),
   onInstallProgress: (cb) => ipcRenderer.on('install-progress', (_e, p) => cb(p)),

@@ -16,7 +16,7 @@
     'zh-CN': {
       'nav.launch': '启动', 'nav.versions': '版本', 'nav.instances': '实例', 'nav.mods': 'Mod',
       'nav.rps': '资源包', 'nav.shaders': '光影', 'nav.saves': '存档', 'nav.shots': '截图',
-      'nav.account': '账户', 'nav.lab': '调优', 'nav.logs': '日志', 'nav.settings': '设置', 'nav.about': '关于', 'nav.world': '世界',
+      'nav.account': '账户', 'nav.lab': '调优', 'nav.logs': '日志', 'nav.settings': '设置', 'nav.about': '关于', 'nav.world': '世界', 'nav.perf': '性能',
       'common.refresh': '刷新', 'common.openFolder': '打开目录', 'common.delete': '删除',
       'common.browse': '浏览', 'common.autoDetect': '自动检测', 'common.save': '保存',
       'common.cancel': '取消', 'common.close': '关闭', 'common.loading': '加载中…',
@@ -43,7 +43,7 @@
     'en-US': {
       'nav.launch': 'Launch', 'nav.versions': 'Versions', 'nav.instances': 'Instances', 'nav.mods': 'Mods',
       'nav.rps': 'Resource Packs', 'nav.shaders': 'Shaders', 'nav.saves': 'Saves', 'nav.shots': 'Screenshots',
-      'nav.account': 'Accounts', 'nav.lab': 'Tuning', 'nav.logs': 'Logs', 'nav.settings': 'Settings', 'nav.about': 'About', 'nav.world': 'World',
+      'nav.account': 'Accounts', 'nav.lab': 'Tuning', 'nav.logs': 'Logs', 'nav.settings': 'Settings', 'nav.about': 'About', 'nav.world': 'World', 'nav.perf': 'Performance',
       'common.refresh': 'Refresh', 'common.openFolder': 'Open folder', 'common.delete': 'Delete',
       'common.browse': 'Browse', 'common.autoDetect': 'Auto-detect', 'common.save': 'Save',
       'common.cancel': 'Cancel', 'common.close': 'Close', 'common.loading': 'Loading…',

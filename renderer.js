@@ -600,6 +600,8 @@
 
   PAGE_INIT.world = async () => { P().initWorld(); };
 
+  PAGE_INIT.perf = async () => { P().initPerf(); };
+
   function bindNav() {
     document.querySelectorAll('.nav-item').forEach(btn => {
       btn.onclick = async () => {

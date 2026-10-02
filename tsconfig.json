@@ -32,6 +32,8 @@
     "worldmerge.js",
     "worldmap.js",
     "worlddb.js",
+    "perfdoctor.js",
+    "perfautotune.js",
     "i18n.js",
     "updater.js",
     "screenshots.js",

@@ -2027,6 +2027,137 @@
     if (wmpCells) setTimeout(wmpDraw, 50);
   }
 
+  /* ============ 性能页（V4 第三组） ============ */
+  const pd = { gameDir: '', saveDir: '', lastTune: null };
+
+  function ptabSwitch(name) {
+    document.querySelectorAll('#perf-tabs .tab').forEach((t) => t.classList.toggle('active', t.dataset.ptab === name));
+    document.querySelectorAll('#page-perf .wtab').forEach((p) => p.classList.toggle('active', p.id === 'ptab-' + name));
+  }
+
+  /** 严重度 → 徽标文案与颜色类 */
+  function sevLabel(sev) {
+    return {
+      fatal: T('perf.sev.fatal', null, '致命'),
+      error: T('perf.sev.error', null, '错误'),
+      warn: T('perf.sev.warn', null, '警告'),
+      info: T('perf.sev.info', null, '提示')
+    }[sev] || sev;
+  }
+  function gradeLabel(g) {
+    return {
+      good: T('perf.grade.good', null, '良好'),
+      fair: T('perf.grade.fair', null, '一般'),
+      poor: T('perf.grade.poor', null, '较差'),
+      bad: T('perf.grade.bad', null, '很差')
+    }[g] || g;
+  }
+
+  async function pdRun() {
+    const box = $('pd-findings');
+    $('pd-summary').textContent = T('perf.diag.running', null, '正在读取日志与存档…');
+    box.innerHTML = '';
+    const res = await wapi.perfDiagnose({
+      gameDir: $('pd-gamedir').value.trim(),
+      saveDir: $('pd-savedir').value.trim(),
+      javaMajor: num('pd-java') || 0,
+      xmxMB: num('pd-xmx') || 0
+    });
+    if (!res || res.error) { $('pd-summary').textContent = T('world.err', null, '错误: ') + (res && res.error || ''); return; }
+    renderPerfProfile(res.sources && res.sources.profile, res.sources);
+    renderPerfFindings(res);
+  }
+
+  function renderPerfProfile(prof, sources) {
+    const el = $('pd-profile');
+    if (!prof) { el.textContent = T('perf.diag.noprofile', null, '未读取到配置信息。'); return; }
+    const src = sources || {};
+    const logInfo = src.logPath
+      ? T('perf.diag.logfrom', { n: Math.round((src.logBytes || 0) / 1024) }, `日志：${esc(src.logPath)}（读取 ${Math.round((src.logBytes || 0) / 1024)} KB）`)
+      : T('perf.diag.nolog', null, '未找到 latest.log（可手动在下方提示中指定游戏目录）');
+    const jvm = src.jvm || {};
+    const jvmInfo = jvm.xmxMB
+      ? T('perf.diag.jvmnow', { m: jvm.xmxMB, gc: jvm.gc || T('perf.diag.gcunknown', null, '未识别') }, `当前参数：-Xmx${jvm.xmxMB}MB · GC ${jvm.gc || '未识别'}`)
+      : T('perf.diag.jvmnone', null, '当前参数：未从日志识别到');
+    const size = src.size || {};
+    el.innerHTML = T('perf.diag.profile', null,
+      `物理内存 ${prof.totalGB}G（空闲 ${prof.freeGB}G） · ${prof.cpuCores} 核心<br>${esc(prof.cpuModel)}<br>${logInfo}<br>${jvmInfo}<br>存档规模：${size.saveChunks || 0} 区块 · 实体峰值 ${size.entityMax || 0} · 容器 ${size.containerCount || 0}`);
+  }
+
+  function renderPerfFindings(res) {
+    const box = $('pd-findings');
+    box.innerHTML = '';
+    $('pd-summary').textContent = res.summary || '';
+    $('pd-score').innerHTML = T('perf.diag.score', { s: res.score, g: gradeLabel(res.grade) }, `评分 <b>${res.score}</b>/100 · ${gradeLabel(res.grade)}`);
+    const list = res.findings || [];
+    if (!list.length) {
+      box.innerHTML = T('perf.diag.clean', null, '<div class="empty">没发现明显的性能问题，配置看起来是合理的。</div>');
+      return;
+    }
+    for (const f of list) {
+      const d = document.createElement('div');
+      d.className = 'item sev-' + f.severity;
+      const advice = (f.advice || []).map((a) => `<li>${esc(a)}</li>`).join('');
+      d.innerHTML = T('perf.diag.row', null,
+        `<div><div class="t">[${sevLabel(f.severity)}] ${esc(f.name)}</div>` +
+        `<div class="s">${esc(f.evidence || '')}</div>` +
+        (advice ? `<ul class="advice">${advice}</ul>` : '') + `</div>`);
+      box.appendChild(d);
+    }
+  }
+
+  async function ptRun() {
+    $('pt-args').textContent = T('perf.tune.running', null, '正在生成建议…');
+    const res = await wapi.perfAutotune({
+      saveDir: $('pt-savedir').value.trim(),
+      javaMajor: num('pt-java') || 0
+    });
+    if (!res || res.error) { $('pt-args').textContent = T('world.err', null, '错误: ') + (res && res.error || ''); return; }
+    renderTune(res.tune, res.size);
+  }
+
+  function renderTune(t, size) {
+    pd.lastTune = t;
+    const info = size
+      ? T('perf.tune.size', { c: size.saveChunks || 0, e: size.entityMax || 0 }, `按存档规模：${size.saveChunks || 0} 区块 · 实体峰值 ${size.entityMax || 0}`)
+      : T('perf.tune.nosize', null, '未提供存档目录，按通用配置建议');
+    $('pt-args').textContent = `${t.args}\n\n${t.tier ? t.tier.label : ''} · ${t.gc}\n${info}`;
+    $('pt-reasons').innerHTML = T('perf.tune.reasons', null, `<b>依据：</b><br>` + (t.reasons || []).map((r) => '· ' + esc(r)).join('<br>'));
+    $('pt-warnings').innerHTML = (t.warnings && t.warnings.length)
+      ? T('perf.tune.warn', null, `<b>注意：</b><br>` + t.warnings.map((w) => '· ' + esc(w)).join('<br>'))
+      : '';
+  }
+
+  async function ptCopy() {
+    if (!pd.lastTune) return;
+    await wapi.copyText(pd.lastTune.args);
+    $('pt-args').textContent = pd.lastTune.args + '\n\n' + T('perf.tune.copied', null, '（已复制到剪贴板）');
+  }
+
+  async function prLoad() {
+    const box = $('pr-list');
+    const rules = await wapi.perfRules();
+    box.innerHTML = '';
+    if (!rules || !rules.length) { box.innerHTML = T('perf.rules.empty', null, '<div class="empty">规则库为空</div>'); return; }
+    for (const r of rules) {
+      const d = document.createElement('div');
+      d.className = 'item';
+      d.innerHTML = T('perf.rules.row', null, `<div><div class="t">[${sevLabel(r.severity)}] ${esc(r.name)}</div><div class="s">${esc(r.id)} · ${esc(r.category)}</div></div>`);
+      box.appendChild(d);
+    }
+  }
+
+  async function initPerf() {
+    document.querySelectorAll('#perf-tabs .tab').forEach((t) => { t.onclick = () => ptabSwitch(t.dataset.ptab); });
+    $('pd-run').onclick = pdRun;
+    $('pd-gamedir-browse').onclick = async () => { const d = await wapi.pickDirectory(); if (d) { $('pd-gamedir').value = d; } };
+    $('pd-savedir-browse').onclick = async () => { const d = await wapi.pickDirectory(); if (d) { $('pd-savedir').value = d; } };
+    $('pt-run').onclick = ptRun;
+    $('pt-savedir-browse').onclick = async () => { const d = await wapi.pickDirectory(); if (d) { $('pt-savedir').value = d; } };
+    $('pt-copy').onclick = ptCopy;
+    $('pr-load').onclick = prLoad;
+  }
+
   window.Pages = {
     refreshInstalled, versionOp, downloadOfficial, loadLoaderVersions, installLoader,
     refreshRes, refreshSaves, refreshShots, organizeShots, refreshLogs, resDir, fmtSize, fmtTime, esc,
@@ -2037,6 +2168,8 @@
     /* 账户多开 + JVM 调优实验室 */
     refreshAccounts, refreshMulti, initLab, runLab, showLabResult, refreshLabHistory,
     /* 世界页（V4 第一组 + 第二组） */
-    initWorld
+    initWorld,
+    /* 性能页（V4 第三组） */
+    initPerf
   };
 })();
