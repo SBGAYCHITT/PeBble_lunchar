@@ -1,7 +1,8 @@
 ﻿!define APPNAME "Pebble Lunchar"
 !define EXENAME "Pebble Lunchar.exe"
 !define INSTDIRNAME "PebbleLunchar"
-!define BUILDVER "3.0.0.202610020317"
+!define VERSION "3.3.0"
+!define BUILDVER "3.3.0.202610020334"
 
 Name "${APPNAME}"
 OutFile "C:\Users\Felix\WorkBuddy\2026-09-12-10-14-18\pefebeb-lunchar\dist\Pebble-Lunchar.exe"
@@ -40,7 +41,7 @@ Section "Install"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${INSTDIRNAME}" "UninstallString" "$INSTDIR\uninstall.exe"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${INSTDIRNAME}" "DisplayIcon" "$INSTDIR\${EXENAME}"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${INSTDIRNAME}" "Publisher" "Felix"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${INSTDIRNAME}" "DisplayVersion" "3.0.0"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${INSTDIRNAME}" "DisplayVersion" "${VERSION}"
 SectionEnd
 
 Section "Launch"
