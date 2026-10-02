@@ -42,7 +42,8 @@ const DOMAINS = [
   './migrate',
   './system',
   './world',
-  './perf'
+  './perf',
+  './modkit'
 ];
 
 /**

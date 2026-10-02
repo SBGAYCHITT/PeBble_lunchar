@@ -193,6 +193,29 @@ contextBridge.exposeInMainWorld('api', {
   perfAutotune: (o) => ipcRenderer.invoke('perf-autotune', o),
   perfParseArgs: (logText) => ipcRenderer.invoke('perf-parse-args', logText),
   perfRules: () => ipcRenderer.invoke('perf-rules'),
+
+  /* Mod 与内容管理：更新风险评估 / 汉化补全 / 资源包预览 / 整合包向导 */
+  modkitFeatures: () => ipcRenderer.invoke('modkit-features'),
+  modkitSuggestPath: (o) => ipcRenderer.invoke('modkit-suggest-path', o),
+  // ① 更新风险评估
+  modkitUpdateAssess: (o) => ipcRenderer.invoke('modkit-update-assess', o),
+  modkitUpdateCompare: (o) => ipcRenderer.invoke('modkit-update-compare', o),
+  // ② 汉化补全
+  modkitL10nAnalyze: (o) => ipcRenderer.invoke('modkit-l10n-analyze', o),
+  modkitL10nAnalyzeDir: (o) => ipcRenderer.invoke('modkit-l10n-analyze-dir', o),
+  modkitL10nBuildPack: (o) => ipcRenderer.invoke('modkit-l10n-buildpack', o),
+  modkitL10nTranslate: (text) => ipcRenderer.invoke('modkit-l10n-translate', text),
+  modkitL10nLangs: (jarPath) => ipcRenderer.invoke('modkit-l10n-langs', jarPath),
+  // ③ 资源包与光影预览
+  modkitPackPreview: (o) => ipcRenderer.invoke('modkit-pack-preview', o),
+  modkitPackDetail: (o) => ipcRenderer.invoke('modkit-pack-detail', o),
+  modkitPackScan: (gameDir) => ipcRenderer.invoke('modkit-pack-scan', gameDir),
+  // ④ 整合包创建向导
+  modkitPackCandidates: (o) => ipcRenderer.invoke('modkit-pack-candidates', o),
+  modkitPackCheck: (o) => ipcRenderer.invoke('modkit-pack-check', o),
+  modkitPackManifest: (o) => ipcRenderer.invoke('modkit-pack-manifest', o),
+  modkitPackExport: (o) => ipcRenderer.invoke('modkit-pack-export', o),
+  modkitPackInspect: (zipPath) => ipcRenderer.invoke('modkit-pack-inspect', zipPath),
   // 注：退出码统一走 onLaunchState({state:'exited', code})，不再单独发 'game-exit'
   onLaunchState: (cb) => ipcRenderer.on('launch-state', (_e, s) => cb(s)),
   onInstallProgress: (cb) => ipcRenderer.on('install-progress', (_e, p) => cb(p)),

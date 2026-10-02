@@ -2158,6 +2158,484 @@
     $('pr-load').onclick = prLoad;
   }
 
+  /* ============ Mod 工具页（V4 第四组） ============ */
+
+  const mkState = {
+    update: null,       // 更新评估结果
+    l10n: null,         // 汉化扫描结果
+    packCand: null,     // 整合包候选清单
+    packCheck: null,    // 整合包检查结果
+    picked: new Set()   // 勾选的 mod（用文件名，避免同名不同版本混淆）
+  };
+
+  function mkTabSwitch(name) {
+    document.querySelectorAll('#mk-tabs .tab').forEach((t) => t.classList.toggle('active', t.dataset.mktab === name));
+    document.querySelectorAll('#page-modkit .wtab').forEach((p) => p.classList.toggle('active', p.id === 'mktab-' + name));
+  }
+
+  /** 风险等级 → 文案与颜色类（与 perf 的 sev-* 复用同一套 CSS） */
+  function riskLabel(score) {
+    if (score >= 90) return { key: 'safe', text: T('mk.risk.safe', null, '安全'), cls: 'sev-info' };
+    if (score >= 70) return { key: 'caution', text: T('mk.risk.caution', null, '谨慎'), cls: 'sev-warn' };
+    if (score >= 40) return { key: 'risky', text: T('mk.risk.risky', null, '有风险'), cls: 'sev-error' };
+    return { key: 'danger', text: T('mk.risk.danger', null, '危险'), cls: 'sev-fatal' };
+  }
+
+  /* ---------- ① 更新风险评估 ---------- */
+
+  function hasPicked() { return mkState.picked.size > 0; }
+
+  async function mkUpdateRun() {
+    const box = $('mu-list');
+    const modsDir = $('mu-modsdir').value.trim();
+    const incomingDir = $('mu-incdir').value.trim();
+    if (!modsDir || !incomingDir) {
+      $('mu-summary').textContent = T('mk.update.needdir', null, '请先指定两个目录。');
+      return;
+    }
+    $('mu-summary').textContent = T('mk.update.running', null, '正在对比…');
+    box.innerHTML = '';
+    const res = await wapi.modkitUpdateAssess({ modsDir, incomingDir });
+    mkRenderUpdate(res);
+  }
+
+  async function mkUpdateCompare() {
+    const oldPath = $('mu-old').value.trim();
+    const newPath = $('mu-new').value.trim();
+    if (!oldPath || !newPath) {
+      $('mu-summary').textContent = T('mk.update.needjar', null, '请指定新旧两个 jar。');
+      return;
+    }
+    $('mu-summary').textContent = T('mk.update.running', null, '正在对比…');
+    $('mu-list').innerHTML = '';
+    const res = await wapi.modkitUpdateCompare({ oldPath, newPath });
+    mkRenderUpdate(res, true);
+  }
+
+  function mkRenderUpdate(res, single) {
+    const box = $('mu-list');
+    box.innerHTML = '';
+    if (!res || res.error) {
+      $('mu-summary').textContent = T('world.err', null, '错误: ') + ((res && res.error) || '');
+      return;
+    }
+
+    if (single) {
+      const r = riskLabel(res.score);
+      $('mu-summary').textContent = T('mk.update.single', { s: res.score, lv: r.text }, `风险分 ${res.score}/100 · ${r.text}`);
+      const d = document.createElement('div');
+      d.className = 'item ' + r.cls;
+      d.innerHTML = mkUpdateBody(res);
+      box.appendChild(d);
+      return;
+    }
+
+    const upd = res.updates || [];
+    $('mu-summary').textContent = T('mk.update.summary', {
+      n: res.count || 0, f: res.freshCount || 0, r: res.risky || 0
+    }, `${res.count || 0} 个更新 · ${res.freshCount || 0} 个新装 · ${res.risky || 0} 个有风险`);
+
+    if (!upd.length) {
+      box.innerHTML = T('mk.update.none', null, '<div class="empty">没有可更新的 mod（新目录里的都是没装过的）。</div>');
+    }
+    for (const u of upd) {
+      const r = riskLabel(u.score);
+      const d = document.createElement('div');
+      d.className = 'item ' + r.cls;
+      d.innerHTML = mkUpdateBody(u);
+      box.appendChild(d);
+    }
+  }
+
+  /** 一个更新项的正文（单 jar 与列表项共用） */
+  function mkUpdateBody(u) {
+    const r = riskLabel(u.score);
+    const head = T('mk.update.itemhead', {
+      name: esc(u.name || u.id || u.file || ''),
+      from: esc(u.oldVersion || '?'), to: esc(u.newVersion || '?'), lv: r.text
+    }, `<b>${esc(u.name || u.id || u.file || '')}</b> ${esc(u.oldVersion || '?')} → ${esc(u.newVersion || '?')}
+        <span class="badge ${r.cls}">${r.text} ${u.score}</span>`);
+
+    const finds = (u.findings || []).map((f) => {
+      const lv = { error: T('mk.sev.error', null, '严重'), warn: T('mk.sev.warn', null, '注意'), info: T('mk.sev.info', null, '提示') }[f.severity] || f.severity;
+      return T('mk.update.finding', { lv, sev: f.severity, t: esc(f.title), d: esc(f.detail || '') },
+        `<div class="s"><span class="badge sev-${f.severity}">${lv}</span> ${esc(f.title)}<br><span class="dim">${esc(f.detail || '')}</span></div>`);
+    }).join('');
+    return T('mk.update.body', { head, finds },
+      `<div><div class="t">${head}</div>${finds || `<div class="s dim">${T('mk.update.nofind', null, '未发现明显风险。')}</div>`}</div>`);
+  }
+
+  /* ---------- ② 汉化补全 ---------- */
+
+  async function mkL10nScan() {
+    const modsDir = $('ml-modsdir').value.trim();
+    if (!modsDir) { $('ml-summary').textContent = T('mk.l10n.needdir', null, '请先指定 mods 目录。'); return; }
+    const box = $('ml-list');
+    $('ml-summary').textContent = T('mk.l10n.scanning', null, '正在扫描…');
+    box.innerHTML = '';
+    const res = await wapi.modkitL10nAnalyzeDir({
+      modsDir, useDict: $('ml-dict').checked, target: 'zh_cn'
+    });
+    mkState.l10n = res;
+    mkRenderL10n(res);
+  }
+
+  function mkRenderL10n(res) {
+    const box = $('ml-list');
+    box.innerHTML = '';
+    if (!res || res.error) {
+      $('ml-summary').textContent = T('world.err', null, '错误: ') + ((res && res.error) || '');
+      return;
+    }
+    const a = res.agg || {};
+    $('ml-summary').textContent = T('mk.l10n.summary', {
+      n: res.count || 0, c: a.coverage || 0, m: a.stillMissing || 0
+    }, `${res.count || 0} 个 mod · 覆盖率 ${a.coverage || 0}% · 仍缺 ${a.stillMissing || 0} 条`);
+
+    if (!res.count) {
+      box.innerHTML = T('mk.l10n.none', null, '<div class="empty">这些 mod 里没有可补全的语言条目。</div>');
+      return;
+    }
+    for (const j of res.jars) {
+      const s = j.stats || {};
+      const d = document.createElement('div');
+      d.className = 'item' + (s.stillMissing > 0 ? ' sev-warn' : ' sev-info');
+      d.innerHTML = T('mk.l10n.row', {
+        file: esc(j.file), ns: esc(j.ns || ''), total: s.total || 0,
+        auto: s.autoFilled || 0, miss: s.stillMissing || 0
+      }, `<div><div class="t">${esc(j.file)}</div>
+        <div class="s">命名空间 ${esc(j.ns || '—')} · 共 ${s.total || 0} 条 · 词典补 ${s.autoFilled || 0} 条 · 仍缺 ${s.stillMissing || 0} 条</div></div>`);
+      box.appendChild(d);
+    }
+  }
+
+  async function mkL10nExport() {
+    const modsDir = $('ml-modsdir').value.trim();
+    if (!modsDir) { $('ml-summary').textContent = T('mk.l10n.needdir', null, '请先指定 mods 目录。'); return; }
+    let out = $('ml-out').value.trim();
+    if (!out) {
+      out = await wapi.saveFile('pebble-l10n-pack.zip', [{ name: T('mk.l10n.zipname', null, '资源包'), extensions: ['zip'] }]);
+      if (!out) return;
+      $('ml-out').value = out;
+    }
+    $('ml-summary').textContent = T('mk.l10n.building', null, '正在生成资源包…');
+    const res = await wapi.modkitL10nBuildPack({
+      modsDir, outZip: out, includeTranslated: $('ml-all').checked, useDict: $('ml-dict').checked
+    });
+    if (!res || res.error) $('ml-summary').textContent = T('world.err', null, '错误: ') + ((res && res.error) || '');
+    else $('ml-summary').textContent = T('mk.l10n.built', { n: res.jars, f: res.files, s: fmtSize(res.size) },
+      `已生成：${res.jars} 个 mod · ${res.files} 个语言文件 · ${fmtSize(res.size)} → ${out}`);
+  }
+
+  async function mkL10nTranslate() {
+    const input = $('ml-tr-in').value;
+    if (!input.trim()) return;
+    const res = await wapi.modkitL10nTranslate(input);
+    const methodText = {
+      phrase: T('mk.tr.phrase', null, '整句命中'),
+      words: T('mk.tr.words', null, '逐词替换'),
+      partial: T('mk.tr.partial', null, '部分命中'),
+      miss: T('mk.tr.miss', null, '未命中')
+    }[res.method] || res.method;
+    $('ml-tr-out').innerHTML = res.method === 'miss'
+      ? T('mk.tr.nomatch', { m: methodText }, `<b>${esc(methodText)}</b> —— 词典里没有，会进待翻译清单。`)
+      : T('mk.tr.hit', { t: esc(res.text), m: methodText }, `→ <b>${esc(res.text)}</b>（${methodText}）`);
+  }
+
+  /* ---------- ③ 资源包与光影预览 ---------- */
+
+  async function mkPackScan() {
+    const gameDir = $('mp-gamedir').value.trim();
+    if (!gameDir) { $('mp-rp-count').textContent = T('mk.preview.needdir', null, '请先指定游戏目录。'); return; }
+    $('mp-rp-count').textContent = T('mk.preview.scanning', null, '扫描中…');
+    $('mp-sh-count').textContent = '';
+    const res = await wapi.modkitPackScan(gameDir);
+    if (!res || res.error) { $('mp-rp-count').textContent = T('world.err', null, '错误: ') + ((res && res.error) || ''); return; }
+    mkRenderPacks('rp', res.resourcepacks);
+    mkRenderPacks('sh', res.shaderpacks);
+  }
+
+  function mkRenderPacks(prefix, items) {
+    const box = $(prefix === 'rp' ? 'mp-rp-list' : 'mp-sh-list');
+    const cnt = $(prefix === 'rp' ? 'mp-rp-count' : 'mp-sh-count');
+    box.innerHTML = '';
+    cnt.textContent = T('mk.preview.count', { n: (items || []).length }, `${(items || []).length} 个`);
+    if (!items || !items.length) {
+      box.innerHTML = T('mk.preview.empty', null, '<div class="empty">这个目录下没有找到包。</div>');
+      return;
+    }
+    for (const it of items) {
+      box.appendChild(mkPackCard(it));
+    }
+  }
+
+  /** 一张包卡片：图标 + 名称 + 描述 + 版本区间 */
+  function mkPackCard(it) {
+    const d = document.createElement('div');
+    d.className = 'mk-card';
+    if (!it.ok) d.classList.add('bad');
+
+    const icon = it.icon
+      ? `<img class="mk-icon" src="${it.icon}" alt="" />`
+      : `<div class="mk-icon mk-noicon">${it.isDir ? '📁' : '📦'}</div>`;
+
+    const mc = it.mc ? T('mk.preview.mc', { v: esc(String(it.mc)) }, `支持 ${esc(String(it.mc))}`) : '';
+    const fmt = it.format !== null && it.format !== undefined
+      ? T('mk.preview.fmt', { n: it.format }, `格式 ${it.format}`) : '';
+    const meta = [mc, fmt].filter(Boolean).join(' · ');
+    const desc = it.desc ? esc(it.desc) : (it.note ? esc(it.note) : '');
+    const sh = it.shaderFiles !== null && it.shaderFiles !== undefined
+      ? T('mk.preview.shaders', { n: it.shaderFiles }, `${it.shaderFiles} 个着色器文件`) : '';
+
+    d.innerHTML = T('mk.preview.card', null,
+      `${icon}<div class="mk-card-body"><div class="mk-card-name" title="${esc(it.name || '')}">${esc(it.name || '')}</div>` +
+      (meta ? `<div class="mk-card-meta">${meta}</div>` : '') +
+      (desc ? `<div class="mk-card-desc">${desc}</div>` : '') +
+      (sh ? `<div class="mk-card-meta">${sh}</div>` : '') +
+      `</div>`);
+    d.onclick = () => mkPackDetail(it.path, it.kind);
+    return d;
+  }
+
+  async function mkPackDetail(p, kind) {
+    const res = await wapi.modkitPackDetail({ path: p, kind: kind || 'rps' });
+    if (!res || res.error) { S().setStatus(T('world.err', null, '错误: ') + ((res && res.error) || ''), 'bad'); return; }
+    openModal(res.name || T('mk.preview.detail', null, '包详情'), (body) => {
+      body.innerHTML = T('mk.preview.detailbody', null,
+        (res.icon ? `<div class="mk-detail-icon"><img src="${res.icon}" alt="" /></div>` : '') +
+        `<div class="kv"><span>${T('mk.preview.path', null, '路径')}</span><code>${esc(res.path)}</code></div>` +
+        `<div class="kv"><span>${T('mk.preview.format', null, '数据包格式')}</span>${res.format === null || res.format === undefined ? '—' : res.format}</div>` +
+        `<div class="kv"><span>${T('mk.preview.mcver', null, '支持版本')}</span>${esc(res.mc ? String(res.mc) : '—')}</div>` +
+        `<div class="kv"><span>${T('mk.preview.isdir', null, '形态')}</span>${res.isDir ? T('mk.preview.dir', null, '文件夹') : T('mk.preview.zip', null, 'zip 压缩包')}</div>` +
+        (res.desc ? `<div class="mk-detail-desc">${esc(res.desc)}</div>` : '') +
+        (res.note ? `<div class="tip">${esc(res.note)}</div>` : ''));
+    });
+  }
+
+  /* ---------- ④ 整合包创建向导 ---------- */
+
+  async function mkPackScanCands() {
+    const modsDir = $('mk-modsdir').value.trim();
+    if (!modsDir) { $('mk-count').textContent = T('mk.pack.needdir', null, '请先指定 mods 目录。'); return; }
+    $('mk-count').textContent = T('mk.pack.loading', null, '读取中…');
+    $('mk-list').innerHTML = '';
+    const res = await wapi.modkitPackCandidates({
+      modsDir, mcVersion: $('mk-mc').value.trim(), loader: $('mk-loader').value
+    });
+    mkState.packCand = res;
+    mkRenderCands(res);
+  }
+
+  function mkRenderCands(res) {
+    const box = $('mk-list');
+    box.innerHTML = '';
+    if (!res || res.error) { $('mk-count').textContent = T('world.err', null, '错误: ') + ((res && res.error) || ''); return; }
+    const items = res.items || [];
+    $('mk-count').textContent = T('mk.pack.count', {
+      n: items.length, s: mkState.picked.size, sz: fmtSize((res.stats && res.stats.totalBytes) || 0)
+    }, `${items.length} 个可选 · 已勾 ${mkState.picked.size} · 合计 ${fmtSize((res.stats && res.stats.totalBytes) || 0)}`);
+
+    if (!items.length) { box.innerHTML = T('mk.pack.none', null, '<div class="empty">这个目录里没有 mod。</div>'); return; }
+
+    for (const it of items) {
+      const d = document.createElement('label');
+      d.className = 'mk-cand' + (it.library ? ' is-lib' : '') + (it.mcOk === false ? ' bad' : '');
+      const tags = [];
+      if (it.library) tags.push(T('mk.pack.taglib', null, '基础库'));
+      if (it.unknown) tags.push(T('mk.pack.tagunk', null, '元数据未知'));
+      if (it.mcOk === false) tags.push(T('mk.pack.tagmc', { v: esc(it.mcRange || '') }, `不支持 ${esc(it.mcRange || '')}`));
+      if (it.deps && it.deps.length) tags.push(T('mk.pack.tagdep', { n: it.deps.length }, `依赖 ${it.deps.length} 项`));
+
+      d.innerHTML = T('mk.pack.cand', null,
+        `<input type="checkbox" ${mkState.picked.has(it.file) ? 'checked' : ''} />` +
+        `<div class="mk-cand-body"><div class="mk-cand-name">${esc(it.name || it.file)}</div>` +
+        `<div class="mk-cand-meta">${esc(it.id || '?')} ${esc(it.version || '')} · ${esc(it.loader || '?')} · ${fmtSize(it.size || 0)}</div>` +
+        (tags.length ? `<div class="mk-tags">${tags.map((t) => `<span class="mk-tag">${t}</span>`).join('')}</div>` : '') +
+        `</div>`);
+      const cb = d.querySelector('input');
+      cb.onchange = () => {
+        if (cb.checked) mkState.picked.add(it.file); else mkState.picked.delete(it.file);
+        mkPackCheck();
+      };
+      box.appendChild(d);
+    }
+  }
+
+  function mkSelectedFiles() { return Array.from(mkState.picked); }
+
+  async function mkPackCheck() {
+    const modsDir = $('mk-modsdir').value.trim();
+    if (!modsDir) return;
+    const res = await wapi.modkitPackCheck({
+      modsDir, selected: mkSelectedFiles(),
+      mcVersion: $('mk-mc').value.trim(), loader: $('mk-loader').value
+    });
+    mkState.packCheck = res;
+    mkRenderIssues(res);
+  }
+
+  function mkRenderIssues(res) {
+    const box = $('mk-problem');
+    box.innerHTML = '';
+    if (!res || res.error) { $('mk-issues').textContent = T('world.err', null, '错误: ') + ((res && res.error) || ''); return; }
+
+    const issues = res.issues || [];
+    $('mk-issues').textContent = T('mk.pack.issuestat', {
+      e: res.errorCount || 0, w: res.warnCount || 0
+    }, `${res.errorCount || 0} 个错误 · ${res.warnCount || 0} 个警告`);
+
+    // 一键补齐提示
+    if (res.suggestAdd && res.suggestAdd.length) {
+      const d = document.createElement('div');
+      d.className = 'item sev-info';
+      d.innerHTML = T('mk.pack.sugadd', { n: res.suggestAdd.length, list: esc(res.suggestAdd.join('、')) },
+        `<div><div class="t">${T('mk.pack.sugtitle', null, '可以补齐的依赖')}</div><div class="s">本地已有但没勾：${esc(res.suggestAdd.join('、'))}</div></div>`);
+      box.appendChild(d);
+    }
+
+    if (!issues.length) {
+      if (res.count) box.innerHTML += T('mk.pack.issueclean', null, '<div class="empty">检查通过，可以导出了。</div>');
+      else box.innerHTML = T('mk.pack.notpicked', null, '<div class="empty">还没勾选 mod。</div>');
+      return;
+    }
+
+    const lvText = { error: T('mk.sev.error', null, '错误'), warn: T('mk.sev.warn', null, '警告'), info: T('mk.sev.info', null, '提示') };
+    for (const i of issues) {
+      const d = document.createElement('div');
+      d.className = 'item sev-' + i.level;
+      d.innerHTML = T('mk.pack.issue', null,
+        `<div><div class="t"><span class="badge sev-${i.level}">${lvText[i.level] || i.level}</span> ${esc(i.title)}</div>` +
+        `<div class="s">${esc(i.detail)}</div><div class="dim">${esc(i.code)}</div></div>`);
+      box.appendChild(d);
+    }
+  }
+
+  async function mkPackExport() {
+    const modsDir = $('mk-modsdir').value.trim();
+    if (!modsDir) { S().setStatus(T('mk.pack.needdir', null, '请先指定 mods 目录。'), 'bad'); return; }
+    if (!hasPicked()) { S().setStatus(T('mk.pack.notpicked', null, '还没勾选 mod。'), 'bad'); return; }
+
+    let out = $('mk-out').value.trim();
+    if (!out) {
+      const stem = ($('mk-name').value.trim() || 'pebble-pack') + '.zip';
+      out = await wapi.saveFile(stem, [{ name: T('mk.pack.zipname', null, '整合包'), extensions: ['zip'] }]);
+      if (!out) return;
+      $('mk-out').value = out;
+    }
+
+    const payload = {
+      modsDir, selected: mkSelectedFiles(), outZip: out,
+      mode: $('mk-mode').value,
+      name: $('mk-name').value.trim(), author: $('mk-author').value.trim(),
+      mcVersion: $('mk-mc').value.trim(), loader: $('mk-loader').value,
+      loaderVersion: $('mk-loaderver').value.trim(), note: $('mk-note').value.trim()
+    };
+    S().setStatus(T('mk.pack.exporting', null, '正在导出…'), '');
+    let res = await wapi.modkitPackExport(payload);
+    delete payload.overwrite;
+    if (res && res.exists) {
+      // 已存在 → 问一次再覆盖
+      const yes = confirm(T('mk.pack.overwrite', { p: out }, `文件已存在：\n${out}\n\n要覆盖它吗？`));
+      if (!yes) { S().setStatus(T('mk.pack.canceled', null, '已取消。'), ''); return; }
+      res = await wapi.modkitPackExport(Object.assign({}, payload, { overwrite: true }));
+    }
+    if (!res || !res.ok) {
+      S().setStatus(T('world.err', null, '错误: ') + ((res && res.error) || ''), 'bad');
+      if (res && res.issues) mkRenderIssues(Object.assign({ count: 1 }, res));
+      return;
+    }
+    S().setStatus(T('mk.pack.done', { n: res.count, s: fmtSize(res.size), m: res.mode }, `已导出 ${res.count} 个 mod（${res.mode}）· ${fmtSize(res.size)} → ${out}`), 'ok');
+    $('mk-issues').textContent = T('mk.pack.exported', null, '已导出');
+  }
+
+  async function mkPackInspect() {
+    const f = await wapi.pickFile([{ name: T('mk.pack.zipname', null, '整合包'), extensions: ['zip'] }]);
+    if (!f) return;
+    const res = await wapi.modkitPackInspect(f);
+    if (!res || res.error) { S().setStatus(T('world.err', null, '错误: ') + ((res && res.error) || ''), 'bad'); return; }
+    openModal(T('mk.pack.inspect', null, '整合包检查'), (body) => {
+      if (!res.isPack) {
+        body.innerHTML = T('mk.pack.notpack', null, '<div class="empty">这个 zip 里没有 manifest.json —— 可能不是本工具导出的整合包。</div>');
+        return;
+      }
+      const m = res.manifest;
+      body.innerHTML = T('mk.pack.inspectbody', { n: res.files }, 
+        `<div class="kv"><span>${T('mk.pack.namelbl', null, '包名')}</span>${esc(m.name || '')}</div>` +
+        `<div class="kv"><span>${T('mk.pack.authorlbl', null, '作者')}</span>${esc(m.author || '—')}</div>` +
+        `<div class="kv"><span>${T('mk.pack.mclbl', null, 'MC 版本')}</span>${esc((m.game && m.game.minecraft) || '—')}</div>` +
+        `<div class="kv"><span>${T('mk.pack.loaderlbl', null, '载入器')}</span>${esc((m.game && m.game.loader) || '—')} ${esc((m.game && m.game.loaderVersion) || '')}</div>` +
+        `<div class="kv"><span>${T('mk.pack.modlbl', null, 'Mod 数')}</span>${(m.mods || []).length}</div>` +
+        (res.mods.length ? `<div class="tip">${T('mk.pack.attached', { n: res.mods.length }, `自带 ${res.mods.length} 个 mod 文件`)}</div>` : '') +
+        `<div class="mk-modlist">${(m.mods || []).map((x) => `<div>${esc(x.name || x.id)} <span class="dim">${esc(x.version || '')}</span></div>`).join('')}</div>`);
+    });
+  }
+
+  async function mkAddSuggest() {
+    const res = mkState.packCheck;
+    if (!res || !res.suggestAdd || !res.suggestAdd.length) {
+      S().setStatus(T('mk.pack.nosug', null, '当前没有可补齐的依赖。'), '');
+      return;
+    }
+    const cand = mkState.packCand && mkState.packCand.items ? mkState.packCand.items : [];
+    for (const id of res.suggestAdd) {
+      const hit = cand.find((c) => c.id && c.id.toLowerCase() === id.toLowerCase());
+      if (hit) mkState.picked.add(hit.file);
+    }
+    mkRenderCands(mkState.packCand);
+    await mkPackCheck();
+  }
+
+  function mkSelAll(v) {
+    const res = mkState.packCand;
+    if (!res || !res.items) return;
+    mkState.picked.clear();
+    if (v) for (const it of res.items) if (!it.unknown) mkState.picked.add(it.file);
+    mkRenderCands(res);
+    mkPackCheck();
+  }
+
+  async function initModkit() {
+    document.querySelectorAll('#mk-tabs .tab').forEach((t) => { t.onclick = () => mkTabSwitch(t.dataset.mktab); });
+
+    /* ① 更新风险 */
+    $('mu-run').onclick = mkUpdateRun;
+    $('mu-cmp').onclick = mkUpdateCompare;
+    $('mu-modsdir-browse').onclick = async () => { const d = await wapi.pickDirectory(); if (d) $('mu-modsdir').value = d; };
+    $('mu-incdir-browse').onclick = async () => { const d = await wapi.pickDirectory(); if (d) $('mu-incdir').value = d; };
+    $('mu-old-browse').onclick = async () => { const f = await wapi.pickFile([{ name: 'JAR', extensions: ['jar'] }]); if (f) $('mu-old').value = f; };
+    $('mu-new-browse').onclick = async () => { const f = await wapi.pickFile([{ name: 'JAR', extensions: ['jar'] }]); if (f) $('mu-new').value = f; };
+
+    /* ② 汉化补全 */
+    $('ml-scan').onclick = mkL10nScan;
+    $('ml-export').onclick = mkL10nExport;
+    $('ml-tr-go').onclick = mkL10nTranslate;
+    $('ml-tr-in').onkeydown = (e) => { if (e.key === 'Enter') mkL10nTranslate(); };
+    $('ml-modsdir-browse').onclick = async () => { const d = await wapi.pickDirectory(); if (d) $('ml-modsdir').value = d; };
+    $('ml-out-browse').onclick = async () => {
+      const f = await wapi.saveFile('pebble-l10n-pack.zip', [{ name: T('mk.l10n.zipname', null, '资源包'), extensions: ['zip'] }]);
+      if (f) $('ml-out').value = f;
+    };
+
+    /* ③ 资源包预览 */
+    $('mp-scan').onclick = mkPackScan;
+    $('mp-gamedir-browse').onclick = async () => { const d = await wapi.pickDirectory(); if (d) $('mp-gamedir').value = d; };
+    $('mp-detail').onclick = () => S().setStatus(T('mk.preview.hint', null, '点任意卡片看详情。'), '');
+
+    /* ④ 整合包向导 */
+    $('mk-scan').onclick = mkPackScanCands;
+    $('mk-addsug').onclick = mkAddSuggest;
+    $('mk-selall').onclick = () => mkSelAll(true);
+    $('mk-selnone').onclick = () => mkSelAll(false);
+    $('mk-export').onclick = mkPackExport;
+    $('mk-inspect').onclick = mkPackInspect;
+    $('mk-modsdir-browse').onclick = async () => { const d = await wapi.pickDirectory(); if (d) $('mk-modsdir').value = d; };
+    $('mk-out-browse').onclick = async () => {
+      const f = await wapi.saveFile(($('mk-name').value.trim() || 'pebble-pack') + '.zip', [{ name: T('mk.pack.zipname', null, '整合包'), extensions: ['zip'] }]);
+      if (f) $('mk-out').value = f;
+    };
+    ['mk-mc', 'mk-loader'].forEach((id) => { const el = $(id); if (el) el.onchange = () => { if (hasPicked()) mkPackCheck(); }; });
+  }
+
   window.Pages = {
     refreshInstalled, versionOp, downloadOfficial, loadLoaderVersions, installLoader,
     refreshRes, refreshSaves, refreshShots, organizeShots, refreshLogs, resDir, fmtSize, fmtTime, esc,
@@ -2170,6 +2648,8 @@
     /* 世界页（V4 第一组 + 第二组） */
     initWorld,
     /* 性能页（V4 第三组） */
-    initPerf
+    initPerf,
+    /* Mod 工具页（V4 第四组） */
+    initModkit
   };
 })();

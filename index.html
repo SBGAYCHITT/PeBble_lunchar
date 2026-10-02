@@ -48,6 +48,7 @@
         <button class="nav-item" data-page="about"><span class="ni">?</span><span data-i18n="nav.about">关于</span></button>
         <button class="nav-item" data-page="world"><span class="ni">🌐</span><span data-i18n="nav.world">世界</span></button>
         <button class="nav-item" data-page="perf"><span class="ni">📈</span><span data-i18n="nav.perf">性能</span></button>
+        <button class="nav-item" data-page="modkit"><span class="ni">🧩</span><span data-i18n="nav.modkit">Mod 工具</span></button>
       </nav>
 
       <main id="main">
@@ -569,6 +570,157 @@
             <div class="card-head"><span>诊断规则库</span>
               <span class="row"><button class="ghost-btn" id="pr-load">加载</button></span></div>
             <div id="pr-list" class="list"></div>
+          </div></div>
+        </div></section>
+
+        <!-- V4 第四组：Mod 与内容管理 -->
+        <section class="page" id="page-modkit"><div class="world-wrap">
+          <div class="tabs" id="mk-tabs">
+            <button class="tab active" data-mktab="update">更新风险</button>
+            <button class="tab" data-mktab="l10n">汉化补全</button>
+            <button class="tab" data-mktab="preview">资源包预览</button>
+            <button class="tab" data-mktab="pack">整合包向导</button>
+          </div>
+
+          <!-- ① Mod 更新风险评估 -->
+          <div class="wtab active" id="mktab-update"><div class="col-left">
+            <div class="card">
+              <div class="card-head"><span>对比新旧版本</span>
+                <span class="row"><button class="primary-btn" id="mu-run">开始评估</button></span></div>
+              <div class="row wrap"><label>当前 mods 目录</label>
+                <input id="mu-modsdir" class="inp" placeholder="已安装的 mod 所在目录" spellcheck="false" />
+                <button class="ghost-btn" id="mu-modsdir-browse">浏览</button></div>
+              <div class="row wrap"><label>新版本目录</label>
+                <input id="mu-incdir" class="inp" placeholder="刚下载的新 jar 放在这里" spellcheck="false" />
+                <button class="ghost-btn" id="mu-incdir-browse">浏览</button></div>
+              <div class="row wrap"><label>MC 目标版本</label>
+                <input id="mu-mc" class="inp tiny" placeholder="如 1.20.1" spellcheck="false" />
+                <label>载入器</label>
+                <select id="mu-loader" class="inp tiny">
+                  <option value="">不限</option>
+                  <option value="fabric">Fabric</option>
+                  <option value="forge">Forge</option>
+                  <option value="neoforge">NeoForge</option>
+                  <option value="quilt">Quilt</option>
+                </select></div>
+              <div class="tip">只做<b>静态对比</b>：读两边 jar 的元数据与内部结构，找出依赖变动、mixin 增删、MC 支持区间收窄等风险点。<b>不会安装、不会改动任何文件</b>。</div>
+            </div>
+            <div class="card">
+              <div class="card-head"><span>单独对比两个 jar</span></div>
+              <div class="row wrap"><label>旧版</label>
+                <input id="mu-old" class="inp" placeholder="旧 jar 路径" spellcheck="false" />
+                <button class="ghost-btn" id="mu-old-browse">浏览</button></div>
+              <div class="row wrap"><label>新版</label>
+                <input id="mu-new" class="inp" placeholder="新 jar 路径" spellcheck="false" />
+                <button class="ghost-btn" id="mu-new-browse">浏览</button></div>
+              <div class="row wrap"><button class="ghost-btn" id="mu-cmp">对比这两个</button></div>
+            </div>
+          </div><div class="col-right">
+            <div class="card fill scroll">
+              <div class="card-head"><span>评估结果</span><span id="mu-summary" class="tip inline"></span></div>
+              <div id="mu-list" class="list"><div class="tip">尚未评估。</div></div>
+            </div>
+          </div></div>
+
+          <!-- ② Mod 汉化补全 -->
+          <div class="wtab" id="mktab-l10n"><div class="col-left">
+            <div class="card">
+              <div class="card-head"><span>扫描汉化缺口</span>
+                <span class="row"><button class="primary-btn" id="ml-scan">扫描 mods 目录</button></span></div>
+              <div class="row wrap"><label>mods 目录</label>
+                <input id="ml-modsdir" class="inp" placeholder="要扫描的 mods 目录" spellcheck="false" />
+                <button class="ghost-btn" id="ml-modsdir-browse">浏览</button></div>
+              <div class="row wrap"><label class="chk"><input type="checkbox" id="ml-dict" checked /> 使用内置离线词典</label></div>
+              <div class="tip">扫出 mod 里<b>没中文</b>的条目，能对上的直接用内置词典补，对不上的列成待翻译清单。
+                产物是<b>独立的汉化资源包</b>，<b>绝不改动原 jar</b> —— 不想要了直接删包即可。</div>
+            </div>
+            <div class="card">
+              <div class="card-head"><span>导出汉化包</span>
+                <span class="row"><button class="ghost-btn" id="ml-export">生成资源包</button></span></div>
+              <div class="row wrap"><label>输出路径</label>
+                <input id="ml-out" class="inp" placeholder="默认存到临时目录，可自己选" spellcheck="false" />
+                <button class="ghost-btn" id="ml-out-browse">另存为</button></div>
+              <div class="row wrap"><label class="chk"><input type="checkbox" id="ml-all" /> 连已翻译的一起重收录（全量覆盖模式）</label></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><span>词典速查</span>
+                <span class="row"><button class="ghost-btn" id="ml-tr-go">翻译</button></span></div>
+              <div class="row wrap"><input id="ml-tr-in" class="inp" placeholder="输入英文，看能翻成什么" spellcheck="false" /></div>
+              <div id="ml-tr-out" class="tip">词典只覆盖常见术语与通用词。</div>
+            </div>
+          </div><div class="col-right">
+            <div class="card fill scroll">
+              <div class="card-head"><span>缺口清单</span><span id="ml-summary" class="tip inline"></span></div>
+              <div id="ml-list" class="list"><div class="tip">尚未扫描。</div></div>
+            </div>
+          </div></div>
+
+          <!-- ③ 资源包与光影预览 -->
+          <div class="wtab stack" id="mktab-preview"><div class="card">
+            <div class="card-head"><span>本机的资源包与光影</span>
+              <span class="row"><button class="ghost-btn" id="mp-detail">详情</button>
+                <button class="primary-btn" id="mp-scan">扫描游戏目录</button></span></div>
+            <div class="row wrap"><label>游戏目录</label>
+              <input id="mp-gamedir" class="inp" placeholder=".minecraft 目录，下面要有 resourcepacks / shaderpacks" spellcheck="false" />
+              <button class="ghost-btn" id="mp-gamedir-browse">浏览</button></div>
+            <div class="tip">读 pack.mcmeta 与 pack.png：显示图标、描述、支持的 MC 版本与数据包格式。<b>鼠标悬停卡片可放大图标</b>。</div>
+          </div><div class="card fill scroll">
+            <div class="card-head"><span>资源包</span><span id="mp-rp-count" class="tip inline"></span></div>
+            <div id="mp-rp-list" class="mk-grid"></div>
+          </div><div class="card fill scroll">
+            <div class="card-head"><span>光影</span><span id="mp-sh-count" class="tip inline"></span></div>
+            <div id="mp-sh-list" class="mk-grid"></div>
+          </div></div>
+
+          <!-- ④ 整合包创建向导 -->
+          <div class="wtab" id="mktab-pack"><div class="col-left">
+            <div class="card">
+              <div class="card-head"><span>① 选 mod</span>
+                <span class="row"><button class="ghost-btn" id="mk-addsug" title="把检查结果里「本地有但没勾」的依赖一键勾上">补齐建议</button>
+                  <button class="primary-btn" id="mk-scan">读取目录</button></span></div>
+              <div class="row wrap"><label>mods 目录</label>
+                <input id="mk-modsdir" class="inp" placeholder="要从哪个 mods 目录挑选" spellcheck="false" />
+                <button class="ghost-btn" id="mk-modsdir-browse">浏览</button></div>
+              <div class="row wrap"><label>包名</label><input id="mk-name" class="inp" placeholder="整合包名称" />
+                <label>作者</label><input id="mk-author" class="inp tiny" placeholder="你的名字" /></div>
+              <div class="row wrap"><label>MC 版本</label><input id="mk-mc" class="inp tiny" placeholder="如 1.20.1" />
+                <label>载入器</label>
+                <select id="mk-loader" class="inp tiny">
+                  <option value="">不限</option>
+                  <option value="fabric">Fabric</option>
+                  <option value="forge">Forge</option>
+                  <option value="neoforge">NeoForge</option>
+                  <option value="quilt">Quilt</option>
+                </select>
+                <label>载入器版本</label><input id="mk-loaderver" class="inp tiny" placeholder="如 0.15.0" /></div>
+              <div class="row wrap"><label>说明</label><input id="mk-note" class="inp" placeholder="可选：一句话介绍" /></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><span>③ 导出</span></div>
+              <div class="row wrap"><label>导出模式</label>
+                <select id="mk-mode" class="inp">
+                  <option value="manifest">只导清单（推荐 · 规避版权）</option>
+                  <option value="full">清单 + mod 文件（体积大，注意授权）</option>
+                </select></div>
+              <div class="row wrap"><label>输出路径</label>
+                <input id="mk-out" class="inp" placeholder="输出 zip 路径" spellcheck="false" />
+                <button class="ghost-btn" id="mk-out-browse">另存为</button></div>
+              <div class="row wrap"><button class="primary-btn" id="mk-export">导出整合包</button>
+                <button class="ghost-btn" id="mk-inspect">检查已有 zip</button></div>
+              <div class="tip">默认<b>只导出清单</b>（manifest.json + README.txt），使用者照着清单自己下载 mod —— 这是最干净、也最不容易踩版权线的分享方式。</div>
+            </div>
+          </div><div class="col-right">
+            <div class="card fill scroll">
+              <div class="card-head"><span>② 待选 mod</span>
+                <span class="row"><span id="mk-count" class="tip inline"></span>
+                  <button class="ghost-btn" id="mk-selall">全选</button>
+                  <button class="ghost-btn" id="mk-selnone">清空</button></span></div>
+              <div id="mk-list" class="list"><div class="tip">先点「读取目录」。</div></div>
+            </div>
+            <div class="card fill scroll">
+              <div class="card-head"><span>依赖与冲突检查</span><span id="mk-issues" class="tip inline"></span></div>
+              <div id="mk-problem" class="list"><div class="tip">勾好 mod 后自动检查。</div></div>
+            </div>
           </div></div>
         </div></section>
 

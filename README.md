@@ -115,6 +115,43 @@ CurseForge 返回的 HTML 描述一律剥成纯文本。
 > 上面四个能力（版本控制 / 区域搬运 / 地图预览 / 跨存档检索）统一收在左侧导航的「世界」页里，
 > 四个子页签共享同一套存档选择，互不干扰。
 
+### Mod 与内容管理（V4 第四组）
+
+装了几百个 mod 之后，真正的痛点是「不敢动」：更新怕崩、英文看不懂、想分享又怕版权。
+这一组四个功能全部**纯本地、不联网**——mod 的元数据（`fabric.mod.json` / `mods.toml`）本来就在 jar 里，够用了。
+
+- **Mod 更新风险评估**（`modupdate.js`）—— 装新版本之前先摊开「会炸什么」
+  - 三维对比：**依赖**（增删 + 版本区间收窄）、**内部结构**（类数 / mixin 增删 / 包结构 / 语言文件数）、
+    **适配**（MC 支持区间、载入器、文件名）
+  - 每条 finding 分 `error / warn / info`，折算成 0–100 风险分（≥90 安全 / ≥70 谨慎 / ≥40 有风险 / 其余危险）
+  - **只读**：不安装、不改文件。要真装还是走原有的 mod 管理通道
+  - 有个反直觉的坑专门处理过：`isNarrower('*', '>=1.0.0')` 必须是 **false**
+    （通配比下界宽松），早先按「区间跨度」算会让 `*` 被判成最严
+- **Mod 汉化补全**（`modl10n.js`）—— 扫出没中文的条目，补上，但**绝不改原 jar**
+  - 四步翻译：①整句精确匹配 ②**「A of B」语序重排**（`Block of Iron` → `铁方块`，不是洋泾浜的「方块 之 铁」）
+    ③逐词替换 ④都不中 → 进待翻译清单
+  - 产物是**独立资源包**（`pack.mcmeta` + `assets/<ns>/lang/zh_cn.json`），丢进 `resourcepacks/` 即可；
+    不想要了直接删包，原 mod 分毫未动
+  - 顺带产出 `zh_tw`（简→繁 342 字表）；中文结果会清掉「汉字＋空格＋汉字」的多余空格，
+    但保留中英混排的空格（`Mod 设置`）
+  - 词典只收常见 MC 术语，**生造词一律留英文**并进清单——乱翻专有名词比不翻更糟
+- **资源包与光影预览**（复用 `packinfo.js`）—— 卡片视图：`pack.png` 图标（pixelated 渲染）、
+  `pack.mcmeta` 描述、支持的 MC 版本、数据包格式；悬停放大图标，点击看详情
+- **整合包创建向导**（`packbuilder.js`）—— 勾 mod → 查依赖与冲突 → 导出可分享的 zip
+  - 检查项：`DEP_MISSING`（本地也没有）/ `DEP_NOT_PICKED`（本地有但没勾，**能一键补齐**）/
+    `DEP_VERSION` / `MC_MISMATCH` / `LOADER_MIX`（生态混装）/ `DUP_ID` / `UNKNOWN_META`
+  - 默认**只导出清单**（`manifest.json` + `README.txt`），使用者照清单自己下载——
+    这是最干净、也最不容易踩版权线的分享方式；`full` 模式才复制 jar
+  - 有个刻意的分歧：`fabric-api` 在这里算**要装的 mod**，不算内置依赖
+    （`modguard` 那份表把它当公共设施，但整合包语境下它恰恰是头号依赖，漏掉就进不去游戏）
+- **`zipwrite.js`**（新增的生产模块，不是测试基建）—— 自己写 zip，不调系统 tar
+  - 踩过两次：MSYS/GNU tar **根本不支持 zip 格式**（`-a` 只挑 tar 系列，产物 magic 是 `2e2f0000`）；
+    且它把 `C:\...` 当远程主机（`Cannot connect to C: resolve failed`）
+  - 两个真坑：`crc32` 末尾必须 `>>> 0`（JS 位运算是有符号的，不加会抛 `value out of range`）；
+    `external attrs` 的 `0o100644 << 16` 同样溢出，也要 `>>> 0`
+
+> 这四个能力收在左侧导航的「Mod 工具」页里，四个子页签独立。
+
 ### 性能诊断与调优（V4 第三组）
 
 卡顿这件事，网上大多是「玄学换参数」。这里的做法是**先归因、再实测、最后才改参数**：
@@ -249,6 +286,10 @@ pebble-lunchar/
 ├── jvmlab.js       JVM A/B 调优实验室：预设库 + GC 日志解析 + 就绪判定 + 历史对比
 ├── perfdoctor.js   性能诊断引擎：日志（GC/OOM/tick 落后）+ 存档规模 + 系统规格 → 分级建议
 ├── perfautotune.js JVM 自动调参：按机器与存档规模生成 -Xmx/-Xms/GC 建议（只建议不写配置）
+├── modupdate.js    Mod 更新风险评估：新旧 jar 的依赖/结构/适配三维对比 → 0–100 风险分
+├── modl10n.js      Mod 汉化补全：离线词典 + 语序重排 → 独立汉化资源包（不改原 jar）
+├── packbuilder.js  整合包创建向导：候选清单 + 依赖冲突检查 + 导出清单/全量 zip
+├── zipwrite.js     最小 ZIP 写入器（Deflate/Stored，零依赖；绕开 tar 不支持 zip 的坑）
 ├── avatar.js       头像抓取（Crafatar → MC-Heads → 首字母降级）+ 7 天磁盘缓存
 ├── multilaunch.js  并行多开登记表：按「实例 + 账户」去重 + PID 存活探测 + 结束
 ├── tray.js         系统托盘：菜单结构纯函数 + 最小化到托盘（创建失败自动降级）
@@ -300,7 +341,7 @@ python make-icon.py
 ```bash
 npm install        # 安装依赖（postinstall 会自动重放 node_modules 补丁）
 npm start          # 本地运行
-npm test           # 单元测试：24 个套件（含 NBT、Anvil、世界版本控制、世界合并、世界地图、跨存档数据库、性能诊断、自动调参、启动参数、IPC 契约、无头装配、i18n）
+npm test           # 单元测试：26 个套件（含 NBT、Anvil、世界版本控制、世界合并、世界地图、跨存档数据库、性能诊断、自动调参、Mod 更新评估、汉化补全、整合包向导、ZIP 写入、启动参数、IPC 契约、无头装配、i18n）
 npm run typecheck  # JSDoc 类型检查（tsc --checkJs，不产出文件）
 npm run test:e2e   # 端到端冒烟：真实 Electron 里跑一遍新增 IPC
 npm run dist       # 打包 portable exe → dist/Pebble-Lunchar.exe（内含代码签名步骤）
@@ -465,11 +506,30 @@ node make-exe.js
   - 全量回归 + 类型检查零错误
   - 单测：perfdoctor 34 项 + perfautotune 32 项
 
+- 第十四批（V4 第四组·Mod 与内容管理）：
+  - `modupdate.js` Mod 更新风险评估：新旧 jar 的依赖（增删 + 区间收窄）、内部结构
+    （类数 / mixin / 包结构 / 语言文件）、适配（MC 区间 / 载入器 / 文件名）三维对比，
+    finding 分 error/warn/info 折算 0–100 风险分；`assessDir` 按 modId 配对并对一模一样的身影跳过。
+    正确处理了「通配比下界宽松」这一反直觉情形（`strictness()` 分档，替代原先按跨度比较的错解）
+  - `modl10n.js` Mod 汉化补全：四步翻译（整句 → 「A of B」语序重排 → 逐词 → 待翻译清单），
+    简→繁 342 字表，中文空格清理（只删汉字间、保留中英混排）；
+    产出独立资源包，**绝不改动原 jar**
+  - `packbuilder.js` 整合包创建向导：候选清单（含基础库识别与 MC 适配标记）+ 七类依赖冲突检查
+    （含「本地有但没勾」的一键补齐建议）+ 导出（默认只导清单，规避版权）
+  - `zipwrite.js` 最小 ZIP 写入器（生产模块）：因为 MSYS/GNU tar 不支持 zip 格式输出，
+    且会把 `C:\...` 当远程主机；改自写后导出产物跨平台稳定
+  - IPC 域 `ipc/modkit.js`（更新评估 / 汉化扫描与导出 / 资源包预览 / 整合包向导 + 路径建议），
+    preload 暴露 18 个 `modkit*`，「Mod 工具」页四个子页签，i18n 加 `nav.modkit` 与页面文案，
+    `style.css` 加卡片网格与悬停放大样式
+  - 全量回归（26 套单测）+ 类型检查零错误
+  - 单测：modupdate 31 项 + modl10n 33 项 + packbuilder 58 项 + zipwrite 27 项
+
 **计划中（均为零成本/纯本地）**：
 
 | 组 | 主题 | 内容 |
 |---|---|---|
 | 14 | V4 第二组（收尾） | 实体清理建议（基于地图实体热点 + 数据库统计）/ 离线合成规划器 |
+| 15 | V4 第五组 | 账户、迁移与创意工具（3D 皮肤编辑器 / 红石电路模拟器等，按组推进） |
 
 > **关于自动更新**：这里做的是「喂一个 JSON 地址就能用」的自托管方案——
 > 静态站点、网盘直链、对象存储都能当更新源，格式为

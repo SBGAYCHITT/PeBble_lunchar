@@ -602,6 +602,8 @@
 
   PAGE_INIT.perf = async () => { P().initPerf(); };
 
+  PAGE_INIT.modkit = async () => { P().initModkit(); };
+
   function bindNav() {
     document.querySelectorAll('.nav-item').forEach(btn => {
       btn.onclick = async () => {

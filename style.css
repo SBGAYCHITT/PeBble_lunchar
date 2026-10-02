@@ -548,3 +548,89 @@ body.theme-light .lab-tr { background: rgba(255, 255, 255, .42); }
 .lab-tr .tie { color: var(--text-dim); }
 .lab-tr .dim { color: var(--text-dim); }
 .tip.inline { display: inline; margin-left: 6px; }
+
+/* ============ Mod 工具页（V4 第四组） ============ */
+
+/* 候选 mod 列表（带复选框的行） */
+.mk-cand {
+  display: flex; align-items: flex-start; gap: 10px; padding: 9px 11px; border-radius: 11px;
+  border: 1px solid var(--border); background: var(--glass); cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.mk-cand:hover { border-color: rgba(108, 140, 255, .5); }
+.mk-cand.is-lib { opacity: .82; }
+.mk-cand.bad { border-color: rgba(255, 107, 107, .45); }
+.mk-cand input { margin-top: 2px; accent-color: var(--accent); flex-shrink: 0; }
+.mk-cand-body { flex: 1; min-width: 0; }
+.mk-cand-name { font-size: 12.5px; font-weight: 600; word-break: break-all; }
+.mk-cand-meta { font-size: 10.5px; color: var(--text-dim); margin-top: 2px; font-family: Consolas, monospace; }
+.mk-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+.mk-tag {
+  font-size: 9.5px; padding: 1px 7px; border-radius: 99px;
+  background: rgba(108, 140, 255, .16); color: var(--accent); border: 1px solid rgba(108, 140, 255, .3);
+}
+
+/* 资源包 / 光影卡片网格 */
+.mk-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px; padding: 4px 2px;
+}
+.mk-card {
+  display: flex; gap: 10px; padding: 10px; border-radius: 12px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--glass);
+  transition: border-color .15s, transform .15s, box-shadow .15s;
+}
+.mk-card:hover {
+  border-color: rgba(108, 140, 255, .55);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(108, 140, 255, .18);
+}
+.mk-card.bad { border-color: rgba(255, 107, 107, .4); }
+/* pack.png 是像素画 —— 必须 pixelated，否则糊成一团 */
+.mk-icon {
+  width: 52px; height: 52px; flex-shrink: 0; border-radius: 9px; overflow: hidden;
+  object-fit: cover; image-rendering: pixelated; background: rgba(0, 0, 0, .18);
+  border: 1px solid var(--border);
+}
+.mk-noicon {
+  display: flex; align-items: center; justify-content: center; font-size: 22px;
+}
+/* 悬停放大：卡片本身不放大，只把图标浮起来，避免整页抖动 */
+.mk-card:hover .mk-icon {
+  transform: scale(2.1); transform-origin: top left;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .45); position: relative; z-index: 5;
+  transition: transform .18s ease, box-shadow .18s;
+}
+.mk-card-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mk-card-name { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-card-meta { font-size: 10px; color: var(--text-dim); font-family: Consolas, monospace; }
+.mk-card-desc {
+  font-size: 11px; color: var(--text-dim); line-height: 1.5;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+/* 详情弹层 */
+.mk-detail-icon { display: flex; justify-content: center; margin-bottom: 12px; }
+.mk-detail-icon img {
+  width: 128px; height: 128px; image-rendering: pixelated; border-radius: 12px;
+  border: 1px solid var(--border); background: rgba(0, 0, 0, .2);
+}
+.mk-detail-desc { font-size: 12px; line-height: 1.7; margin-top: 10px; }
+.kv { display: flex; gap: 10px; font-size: 12px; line-height: 1.7; }
+.kv > span:first-child { flex-shrink: 0; width: 88px; color: var(--text-dim); }
+.kv code { font-size: 11px; word-break: break-all; font-family: Consolas, monospace; }
+.mk-modlist {
+  margin-top: 10px; max-height: 320px; overflow: auto; font-size: 11.5px; line-height: 1.8;
+  font-family: Consolas, monospace;
+}
+
+/* 严重度徽标（复用 perf 的语义色） */
+.sev-fatal { border-left: 3px solid #ff4d4d; }
+.sev-error { border-left: 3px solid #ff6b6b; }
+.sev-warn  { border-left: 3px solid #e8a34a; }
+.sev-info  { border-left: 3px solid var(--accent); }
+.badge.sev-fatal { background: rgba(255, 77, 77, .2); color: #ff4d4d; }
+.badge.sev-error { background: rgba(255, 107, 107, .2); color: #ff6b6b; }
+.badge.sev-warn  { background: rgba(232, 163, 74, .2); color: #e8a34a; }
+.badge.sev-info  { background: rgba(108, 140, 255, .2); color: var(--accent); }
+.dim { color: var(--text-dim); font-size: 10.5px; }
