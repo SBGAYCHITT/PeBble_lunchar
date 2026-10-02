@@ -88,6 +88,7 @@ const nsi = `
 !define APPNAME "Pebble Lunchar"
 !define EXENAME "Pebble Lunchar.exe"
 !define INSTDIRNAME "PebbleLunchar"
+!define VERSION "${pkg.version}"
 !define BUILDVER "${BUILDVER}"
 
 Name "\${APPNAME}"
@@ -127,7 +128,7 @@ Section "Install"
   WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\\${INSTDIRNAME}" "UninstallString" "$INSTDIR\\uninstall.exe"
   WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\\${INSTDIRNAME}" "DisplayIcon" "$INSTDIR\\\${EXENAME}"
   WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\\${INSTDIRNAME}" "Publisher" "Felix"
-  WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\\${INSTDIRNAME}" "DisplayVersion" "3.0.0"
+  WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\\${INSTDIRNAME}" "DisplayVersion" "\${VERSION}"
 SectionEnd
 
 Section "Launch"

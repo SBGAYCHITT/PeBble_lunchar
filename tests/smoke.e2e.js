@@ -406,7 +406,7 @@ require('../main');
       const active = document.querySelector('.page.active') || document.querySelector('.page:not(.hidden)');
       if (active) out.visited++;
     }
-    // 2) 关于页：必须渲染出当前版本（发版改成 V3 后应为 3.0.0）
+    // 2) 关于页：必须渲染出当前版本（版本号从 package.json 读，发版改一处即可）
     const aboutBtn = [...document.querySelectorAll('.nav-item')].find(b => (b.getAttribute('data-page') || '') === 'about');
     if (aboutBtn) { aboutBtn.click(); await sleep(300); }
     const ab = document.querySelector('.page.active');
@@ -440,9 +440,11 @@ require('../main');
   console.log('关键路径:', JSON.stringify(harden));
 
   const hardenBad = [];
-  if (!harden.navCount || harden.navCount < 13) hardenBad.push('导航项不足 13 个: ' + harden.navCount);
+  // 版本断言从 package.json 现读，避免每次发版都要改测试里的硬编码
+  const pkgVersion = require('../package.json').version;
+  if (!harden.navCount || harden.navCount < 15) hardenBad.push('导航项不足 15 个: ' + harden.navCount);
   if (harden.visited !== harden.navCount) hardenBad.push('存在无法切换的页面（visited ' + harden.visited + ' / ' + harden.navCount + '）');
-  if (!/^3\\.0\\.0$/.test(harden.aboutVersion || '')) hardenBad.push('关于页版本未显示 3.0.0: ' + harden.aboutVersion);
+  if (harden.aboutVersion !== pkgVersion) hardenBad.push(`关于页版本 ${harden.aboutVersion} 与 package.json 的 ${pkgVersion} 不一致`);
   if (!harden.settings.hasCfg || !harden.settings.hasSave) hardenBad.push('设置读写能力缺失（cfg/saveCfg）');
   if (harden.settings.wrote !== 'v3-ok') hardenBad.push('设置写入未生效: ' + JSON.stringify(harden.settings));
   if (harden.settings.restored === 'v3-ok') hardenBad.push('设置还原失败（残留冒烟值）');

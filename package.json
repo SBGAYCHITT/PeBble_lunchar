@@ -1,6 +1,6 @@
 {
   "name": "pebble-lunchar",
-  "version": "3.0.0",
+  "version": "3.3.0",
   "description": "Pebble Lunchar - Minecraft offline launcher",
   "main": "main.js",
   "author": "Felix",
