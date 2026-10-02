@@ -7,6 +7,9 @@ dist/
 # ===== 本地开发证书配置（含本机证书指纹/路径，不进公开仓库） =====
 .signing/
 
+# ===== NSIS 脚本：由 make-exe.js 从 package.json 现生成，版本号/OutFile 路径都是本机的 =====
+tools/pl.nsi
+
 # ===== 临时 / 调试产物 =====
 *.bak
 auto-test-log*.txt
