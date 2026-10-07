@@ -635,7 +635,7 @@
       const d = document.createElement('div');
       d.className = 'ver-card';
       d.dataset.id = v.id;
-      d.innerHTML = `<span class="item-ico">${P().blockIcon(v.type, 26)}</span>` +
+      d.innerHTML = `<span class="item-ico">${P().blockIcon(v.type)}</span>` +
         `<div class="item-main"><div class="t">${P().esc(v.id)}</div>` +
         `<div class="s">${P().esc(v.type)}</div></div>`;
       d.onclick = () => {

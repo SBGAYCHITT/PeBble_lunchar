@@ -53,26 +53,30 @@ html, body {
 /* ---------- 主体布局：功能栏在顶部 ---------- */
 #body { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 
-/* 顶部功能栏：图标在上、文字在下，横向排；窄窗口横向滚动而不是换行 ——
-   换行会让内容区高度忽大忽小，切页时整个界面往下跳。 */
+/* 顶部功能栏：**整条铺主题渐变**（蓝绿像素渐变），图标在上、文字在下，横向排；
+   窄窗口横向滚动而不是换行 —— 换行会让内容区高度忽大忽小，切页时整个界面往下跳。 */
 #nav {
   flex: 0 0 auto; display: flex; flex-direction: row; align-items: stretch;
   gap: 4px; padding: 6px 12px; overflow-x: auto; overflow-y: hidden;
-  background: #ffffff; border-bottom: 1px solid var(--border);
+  background: var(--accent-grad);
 }
 #nav::-webkit-scrollbar { height: 5px; }
-#nav::-webkit-scrollbar-thumb { background: var(--glass-strong); border-radius: 3px; }
+#nav::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .45); border-radius: 3px; }
+/* 渐变底上未选中用半透明白字；悬停提亮；选中反过来做**白底** ——
+   选中态再用渐变会和底撞成一片，白胶囊才是渐变栏上唯一能「跳出来」的做法 */
 .nav-item {
   flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 2px; min-width: 64px; padding: 6px 10px; border: none;
   border-radius: 10px; cursor: pointer; font-size: 11.5px; font-weight: 600;
-  background: transparent; color: var(--text-dim); white-space: nowrap;
-  transition: background .15s, color .15s;
+  background: transparent; color: rgba(255, 255, 255, .86); white-space: nowrap;
+  transition: background .15s, color .15s, box-shadow .15s;
 }
 .nav-item .ni { font-size: 17px; line-height: 1; }
-.nav-item:hover { background: var(--glass-strong); color: var(--text); }
-/* 选中态直接用主题渐变 —— 蓝绿像素渐变最该被看见的地方就是这里 */
-.nav-item.active { background: var(--accent-grad); color: #fff; box-shadow: 0 3px 10px rgba(0, 179, 164, .28); }
+.nav-item:hover { background: rgba(255, 255, 255, .2); color: #fff; }
+.nav-item.active {
+  background: #fff; color: #068f83;
+  box-shadow: 0 3px 10px rgba(4, 46, 74, .22);
+}
 
 #main { flex: 1; min-width: 0; min-height: 0; padding: 14px; }
 .page { display: none; height: 100%; gap: 14px; }
@@ -704,7 +708,7 @@ input[type=range]::-webkit-slider-thumb {
 
 /* 版本项左侧的方块图标（内联 SVG，草方块 / 命令方块） */
 .item-ico { flex: 0 0 auto; display: flex; align-items: center; }
-.item-ico .blk { display: block; }
+.item-ico .blk { display: block; image-rendering: pixelated; }
 .item-main { flex: 1; min-width: 0; }
 
 /* 下载官方版本：原来是下拉框，改成能放图标的卡片列表（对标 PCL） */

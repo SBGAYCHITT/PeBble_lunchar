@@ -39,33 +39,17 @@
   function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
   /**
-   * MC 方块图标 —— 等距立方体的内联 SVG（16×16 像素风），不引任何资源文件。
-   * 正式版画**草方块**（草绿顶 + 泥土侧），快照画**命令方块**（金黄），
-   * 一眼就能分出「这是正式版还是快照」，不用去读版本号后面的后缀（对标 PCL 的版本图标）。
-   * 用 SVG 而不是位图：任意尺寸都锐利，也不用给 assets 塞一堆 png。
+   * MC 方块图标 —— 直接用**原版 2D 贴图**（16×16 像素画放大，`image-rendering: pixelated` 保硬边）。
+   * 正式版 = 草方块（草皮 + 泥土，最好认），快照 = 命令方块。
+   * 贴图取自原版资源包 `textures/block/`，裁成 16×16 放在 `assets/blocks/`。
+   * 尺寸默认 32 = 原图 2 倍 —— **整数倍缩放**才不会出现像素被插值成一半的情况。
    * @param {string} type 版本类型：release / snapshot / old_beta …
-   * @param {number} [size] 边长（px），默认 22
+   * @param {number} [size] 边长（px），默认 32
    */
   function blockIcon(type, size) {
-    const snap = !!type && type !== 'release';
-    // 命令方块：金黄；草方块：草绿 + 泥土棕
-    const c = snap
-      ? { top: '#e8b04a', left: '#c8912f', right: '#a3741f', edge: '#8a5f14' }
-      : { top: '#7cc356', left: '#8a6647', right: '#74543a', edge: '#5e9a3a' };
-    const s = size || 22;
-    let body =
-      `<polygon points="8,1 15,4.6 8,8.2 1,4.6" fill="${c.top}"/>` +
-      `<polygon points="1,4.6 8,8.2 8,15 1,11.4" fill="${c.left}"/>` +
-      `<polygon points="15,4.6 15,11.4 8,15 8,8.2" fill="${c.right}"/>`;
-    if (snap) {
-      // 命令方块：顶面正中一个方形凹槽
-      body += `<polygon points="8,3.1 11.4,4.7 8,6.3 4.6,4.7" fill="${c.edge}"/>`;
-    } else {
-      // 草方块：左右侧面上沿垂下一层草皮（这是草方块最好认的特征）
-      body += `<polygon points="1,4.6 8,8.2 8,9.5 1,5.9" fill="${c.edge}"/>` +
-        `<polygon points="15,4.6 15,5.9 8,9.5 8,8.2" fill="#4f8630"/>`;
-    }
-    return `<svg class="blk" width="${s}" height="${s}" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">${body}</svg>`;
+    const name = type && type !== 'release' ? 'command_block' : 'grass_block';
+    const s = size || 32;
+    return `<img class="blk" src="assets/blocks/${name}.png" width="${s}" height="${s}" alt="" draggable="false" />`;
   }
 
   async function versionOp(op) {
