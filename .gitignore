@@ -4,8 +4,8 @@ node_modules/
 # ===== 构建产物（npm run dist 生成，约 334MB；SignPath 从本地 zip 签名，不进仓库） =====
 dist/
 # 备用输出目录：electron-builder 的 emptyDir 会被沙箱的批量删除守卫拦（>50 项），
-# 这时改用 --config.directories.output=dist2 重建，再 PL_SRC=dist2/win-unpacked 打包
-dist2/
+# 这时改用 --config.directories.output=distN 重建，再 PL_SRC=distN/win-unpacked 打包
+dist*/
 
 # ===== 本地开发证书配置（含本机证书指纹/路径，不进公开仓库） =====
 .signing/

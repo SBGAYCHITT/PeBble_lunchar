@@ -47,7 +47,9 @@ const DOMAINS = [
   './entitydoctor',
   './craftplanner',
   './livemetrics',
-  './accountbook'
+  './accountbook',
+  './skinedit',
+  './redstone'
 ];
 
 /**

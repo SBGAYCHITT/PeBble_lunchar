@@ -604,6 +604,10 @@
 
   PAGE_INIT.modkit = async () => { P().initModkit(); };
 
+  PAGE_INIT.skin = async () => { P().initSkin(); };
+
+  PAGE_INIT.redstone = async () => { P().initRedstone(); };
+
   function bindNav() {
     document.querySelectorAll('.nav-item').forEach(btn => {
       btn.onclick = async () => {
@@ -719,6 +723,17 @@
     if (PL.currentPage === 'versions') await P().refreshInstalled();
   }
   PL.refreshAll = refreshAll;
+
+  /* ---------- 渲染主循环 ----------
+   * 目前只有皮肤页的 3D 预览需要逐帧重绘（自动旋转）。
+   * 用 requestAnimationFrame 而不是 setInterval：窗口最小化 / 被遮挡时浏览器本来就会
+   * 暂停 rAF，省得自己判断可见性。不在皮肤页时 skTick() 内部会立刻返回，
+   * 每帧的代价只是一次 classList.contains。 */
+  (function frame() {
+    const pg = P();
+    if (pg && pg.skTick) { try { pg.skTick(); } catch { /* 单帧绘制失败不该拖垮整个循环 */ } }
+    requestAnimationFrame(frame);
+  })();
 
   /* ---------- 初始化 ---------- */
   (async function init() {

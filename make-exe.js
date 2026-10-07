@@ -92,12 +92,31 @@ const pkg = require('./package.json');
 // 每次打包生成新的构建号：已安装副本的版本号不一致时重新解压覆盖，否则直接秒开
 const BUILDVER = pkg.version + '.' + new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 12);
 
+// Windows 的版本资源必须是 4 段数字（X.Y.Z.B，每段 0-65535）。
+// 不写这个的话，用户右键「属性 → 详细信息」是空的 —— 下到手里没法确认是哪个版本，
+// 排查问题时也少一条线索（内层的 Pebble Lunchar.exe 由 electron-builder 填好了，
+// 但用户拿到的是外层这个单文件）。
+const VER4 = (pkg.version.replace(/[^\d.]/g, '').split('.').concat(['0', '0', '0']).slice(0, 4)
+  .map((n) => String(Math.min(65535, parseInt(n, 10) || 0))).join('.'));
+
 const nsi = `
 !define APPNAME "Pebble Lunchar"
 !define EXENAME "Pebble Lunchar.exe"
 !define INSTDIRNAME "PebbleLunchar"
 !define VERSION "${pkg.version}"
 !define BUILDVER "${BUILDVER}"
+
+VIProductVersion "${VER4}"
+VIAddVersionKey /LANG=2052 "ProductName" "Pebble Lunchar"
+VIAddVersionKey /LANG=2052 "FileDescription" "Minecraft 启动器（免安装单文件）"
+VIAddVersionKey /LANG=2052 "FileVersion" "\${VERSION}"
+VIAddVersionKey /LANG=2052 "ProductVersion" "\${VERSION}"
+VIAddVersionKey /LANG=2052 "LegalCopyright" "MIT License"
+VIAddVersionKey /LANG=1033 "ProductName" "Pebble Lunchar"
+VIAddVersionKey /LANG=1033 "FileDescription" "Minecraft launcher (portable single file)"
+VIAddVersionKey /LANG=1033 "FileVersion" "\${VERSION}"
+VIAddVersionKey /LANG=1033 "ProductVersion" "\${VERSION}"
+VIAddVersionKey /LANG=1033 "LegalCopyright" "MIT License"
 
 Name "\${APPNAME}"
 OutFile "${OUT}"

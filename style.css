@@ -675,3 +675,96 @@ body.theme-light .lab-tr { background: rgba(255, 255, 255, .42); }
 
 /* 页签变多了（世界页 6 个、性能页 4 个）—— 允许换行，窄窗口下不会挤成一团 */
 #world-tabs, #perf-tabs { flex-wrap: wrap; }
+
+
+/* ============================================================
+ * V4 第五组：3D 皮肤编辑器 + 红石电路模拟器
+ * ============================================================ */
+
+/* 通用小控件（这两个类之前没有，补上） */
+.mini-btn {
+  padding: 5px 10px; font-size: 11.5px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--glass); color: var(--text-dim);
+}
+.mini-btn:hover { color: var(--text); border-color: rgba(255, 255, 255, .25); }
+.mini-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(108, 140, 255, .14); }
+.rng { flex: 1; min-width: 80px; accent-color: var(--accent); }
+
+/* 一排「胶囊」按钮：模板 / 示例共用 */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips button {
+  padding: 4px 10px; font-size: 11.5px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--glass); color: var(--text-dim);
+}
+.chips button:hover { color: var(--text); border-color: rgba(255, 255, 255, .3); }
+.chips button.active { color: var(--accent); border-color: var(--accent); background: rgba(108, 140, 255, .14); }
+
+/* ---------- 皮肤编辑器 ---------- */
+.skin-wrap { display: flex; flex: 1; min-height: 0; gap: 14px; }
+.skin-preview { width: 336px; flex: 0 0 336px; display: flex; flex-direction: column; gap: 9px; }
+.skin-canvas {
+  width: 100%; display: block; border-radius: 12px; border: 1px solid var(--border);
+  background: radial-gradient(circle at 50% 30%, rgba(108, 140, 255, .16), rgba(0, 0, 0, .28));
+  cursor: grab; touch-action: none;
+}
+.skin-canvas:active { cursor: grabbing; }
+
+.skin-edit { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 9px; }
+.skin-edit-body { display: flex; gap: 12px; min-height: 0; }
+.skin-grid-wrap { flex: 0 0 384px; }
+#sk-grid {
+  width: 384px; height: 384px; display: block; border-radius: 10px;
+  border: 1px solid var(--border); image-rendering: pixelated;
+  cursor: crosshair; touch-action: none;
+  /* 棋盘格底：透明像素一眼可辨 */
+  background-color: #181b26;
+  background-image:
+    linear-gradient(45deg, rgba(255, 255, 255, .06) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, .06) 75%),
+    linear-gradient(45deg, rgba(255, 255, 255, .06) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, .06) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 8px;
+}
+.skin-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }
+.skin-color {
+  width: 100%; height: 34px; padding: 2px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--input);
+}
+.skin-palette { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; }
+.skin-palette i {
+  display: block; aspect-ratio: 1 / 1; border-radius: 4px; cursor: pointer;
+  border: 1px solid rgba(0, 0, 0, .4);
+}
+.skin-palette i:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
+.skin-parts { display: flex; flex-direction: column; gap: 4px; }
+.skin-parts button {
+  text-align: left; font-size: 11.5px; padding: 5px 9px; border-radius: 7px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--glass); color: var(--text-dim);
+}
+.skin-parts button.active { color: var(--accent); border-color: var(--accent); background: rgba(108, 140, 255, .12); }
+.skin-side { width: 208px; flex: 0 0 208px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+
+/* ---------- 红石模拟器 ---------- */
+.rs-wrap { display: flex; flex: 1; min-height: 0; gap: 14px; }
+.rs-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.rs-canvas {
+  flex: 1; width: 100%; min-height: 0; display: block; border-radius: 12px;
+  /* 画布是「深色画板」而不跟随主题：canvas 里的配色（白色网格线、浅色强度数字、
+     时序曲线）都是按浅色笔画在深底上选的，浅色主题下换成浅底会让它们全部消失。
+     这也是像素编辑器的通行做法（Aseprite / Blockbench 都用深色画板）。 */
+  border: 1px solid var(--border); background: #181b26;
+  cursor: crosshair; touch-action: none;
+}
+.rs-side { width: 292px; flex: 0 0 292px; display: flex; flex-direction: column; gap: 7px; overflow-y: auto; }
+.rs-parts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.rs-parts button {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 7px 2px; font-size: 10.5px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--glass); color: var(--text-dim);
+}
+.rs-parts button i { width: 15px; height: 15px; border-radius: 3px; display: block; }
+.rs-parts button:hover { color: var(--text); }
+.rs-parts button.active { color: var(--accent); border-color: var(--accent); background: rgba(108, 140, 255, .12); }
+.rs-wave {
+  width: 100%; display: block; border-radius: 8px;
+  border: 1px solid var(--border); background: #181b26;
+}

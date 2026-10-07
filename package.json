@@ -1,6 +1,6 @@
 {
   "name": "pebble-lunchar",
-  "version": "3.5.0",
+  "version": "4.0.0",
   "description": "Pebble Lunchar - Minecraft offline launcher",
   "main": "main.js",
   "author": "Felix",
@@ -9,7 +9,7 @@
     "start": "electron .",
     "pack": "electron-builder --win --x64 --dir",
     "dist": "node make-exe.js",
-    "test": "node tests/imports.test.js && node tests/timemachine.test.js && node tests/modguard.test.js && node tests/packinfo.test.js && node tests/modstore.test.js && node tests/instances.test.js && node tests/loaders.test.js && node tests/launcher.test.js && node tests/jvmlab.test.js && node tests/multilaunch.test.js && node tests/system.test.js && node tests/javadl.test.js && node tests/nbt.test.js && node tests/anvil.test.js && node tests/worldver.test.js && node tests/worldmerge.test.js && node tests/worldmap.test.js && node tests/worlddb.test.js && node tests/perfdoctor.test.js && node tests/perfautotune.test.js && node tests/ipc-contract.test.js && node tests/ipc-runtime.test.js && node tests/i18n-ui.test.js && node tests/i18n-pages.test.js && node tests/modupdate.test.js && node tests/modl10n.test.js && node tests/packbuilder.test.js && node tests/zipwrite.test.js && node tests/entitydoctor.test.js && node tests/craftplanner.test.js && node tests/livemetrics.test.js && node tests/accountbook.test.js && node tests/ipc-v4.test.js",
+    "test": "node tests/imports.test.js && node tests/timemachine.test.js && node tests/modguard.test.js && node tests/packinfo.test.js && node tests/modstore.test.js && node tests/instances.test.js && node tests/loaders.test.js && node tests/launcher.test.js && node tests/jvmlab.test.js && node tests/multilaunch.test.js && node tests/system.test.js && node tests/javadl.test.js && node tests/nbt.test.js && node tests/anvil.test.js && node tests/worldver.test.js && node tests/worldmerge.test.js && node tests/worldmap.test.js && node tests/worlddb.test.js && node tests/perfdoctor.test.js && node tests/perfautotune.test.js && node tests/ipc-contract.test.js && node tests/ipc-runtime.test.js && node tests/i18n-ui.test.js && node tests/i18n-pages.test.js && node tests/modupdate.test.js && node tests/modl10n.test.js && node tests/packbuilder.test.js && node tests/zipwrite.test.js && node tests/entitydoctor.test.js && node tests/craftplanner.test.js && node tests/livemetrics.test.js && node tests/accountbook.test.js && node tests/ipc-v4.test.js && node tests/skinedit.test.js && node tests/redstone.test.js",
     "typecheck": "node node_modules/typescript/lib/tsc.js -p tsconfig.json",
     "test:live": "node tests/loaders.test.js --live",
     "test:e2e": "node_modules/electron/dist/electron.exe tests/smoke.e2e.js",
@@ -82,7 +82,9 @@
       "entitydoctor.js",
       "craftplanner.js",
       "livemetrics.js",
-      "accountbook.js"
+      "accountbook.js",
+      "skinedit.js",
+      "redstone.js"
     ],
     "electronDist": "node_modules/electron/dist",
     "win": {

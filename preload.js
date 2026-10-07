@@ -246,6 +246,36 @@ contextBridge.exposeInMainWorld('api', {
   acctForInstance: (o) => ipcRenderer.invoke('acct-for-instance', o),
   acctBind: (o) => ipcRenderer.invoke('acct-bind', o),
 
+  /* 3D 皮肤编辑器（V4 第五组） */
+  skinMeta: () => ipcRenderer.invoke('skin-meta'),
+  skinMesh: (overlay) => ipcRenderer.invoke('skin-mesh', overlay),
+  skinTemplate: (id) => ipcRenderer.invoke('skin-template', id),
+  skinPick: () => ipcRenderer.invoke('skin-pick'),
+  skinLoad: (file) => ipcRenderer.invoke('skin-load', file),
+  skinSave: (file, dataUrl) => ipcRenderer.invoke('skin-save', file, dataUrl),
+  skinSaveAs: (dataUrl, name) => ipcRenderer.invoke('skin-save-as', dataUrl, name),
+  skinMirror: (dataUrl) => ipcRenderer.invoke('skin-mirror', dataUrl),
+  skinValidate: (dataUrl) => ipcRenderer.invoke('skin-validate', dataUrl),
+  skinPartMap: (dataUrl, partId, scale) => ipcRenderer.invoke('skin-part-map', dataUrl, partId, scale),
+
+  /* 红石电路模拟器（V4 第五组） */
+  rsComponents: () => ipcRenderer.invoke('redstone-components'),
+  rsSamples: () => ipcRenderer.invoke('redstone-samples'),
+  rsSample: (id) => ipcRenderer.invoke('redstone-sample', id),
+  rsNew: () => ipcRenderer.invoke('redstone-new'),
+  rsPlace: (o) => ipcRenderer.invoke('redstone-place', o),
+  rsRemove: (o) => ipcRenderer.invoke('redstone-remove', o),
+  rsSet: (o) => ipcRenderer.invoke('redstone-set', o),
+  rsRotate: (o) => ipcRenderer.invoke('redstone-rotate', o),
+  rsReset: () => ipcRenderer.invoke('redstone-reset'),
+  rsStep: (n) => ipcRenderer.invoke('redstone-step', n),
+  rsProbe: (o) => ipcRenderer.invoke('redstone-probe', o),
+  rsWave: (last) => ipcRenderer.invoke('redstone-wave', last),
+  rsAscii: () => ipcRenderer.invoke('redstone-ascii'),
+  rsSave: (name) => ipcRenderer.invoke('redstone-save', name),
+  rsLoad: () => ipcRenderer.invoke('redstone-load'),
+  rsImport: (o) => ipcRenderer.invoke('redstone-import', o),
+
   // 注：退出码统一走 onLaunchState({state:'exited', code})，不再单独发 'game-exit'
   onLaunchState: (cb) => ipcRenderer.on('launch-state', (_e, s) => cb(s)),
   onInstallProgress: (cb) => ipcRenderer.on('install-progress', (_e, p) => cb(p)),

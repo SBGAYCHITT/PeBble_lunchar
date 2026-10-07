@@ -439,6 +439,104 @@ require('../main');
   })()`);
   console.log('关键路径:', JSON.stringify(harden));
 
+  /* ---- 皮肤编辑器 / 红石模拟器（V4 第五组）----
+   * 这两个页面的逻辑几乎全在渲染层（3D 投影 + canvas 软件光栅化），
+   * 单测只能钉住内核，而「页面到底画没画出东西」只有真跑一遍才知道：
+   * 投影锚点写错、canvas 尺寸取到 0、async 块被异常打断 —— 这几类都是
+   * 单测全绿但界面一片空白的典型。 */
+  const v4 = await win.webContents.executeJavaScript(`(async () => {
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    // 数画布上 alpha>0 的像素：0 就是「什么都没画」
+    const paints = (id) => {
+      const c = document.getElementById(id);
+      if (!c) return -1;
+      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      let n = 0;
+      for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++;
+      return n;
+    };
+    const out = {};
+
+    /* --- 皮肤页 --- */
+    const sb = [...document.querySelectorAll('.nav-item')].find(b => b.dataset.page === 'skin');
+    if (sb) sb.click();
+    await sleep(1500);
+    out.palette = document.querySelectorAll('#sk-palette i').length;
+    out.parts = document.querySelectorAll('#sk-parts button').length;
+    out.templates = document.querySelectorAll('#sk-templates button').length;
+    out.tools = document.querySelectorAll('#sk-tools .mini-btn').length;
+    out.validate = (document.getElementById('sk-validate').innerText || '').trim().length;
+    out.meshLabel = (document.getElementById('sk-fps').innerText || '').trim();
+    out.canvasPix = paints('sk-canvas');
+    out.gridPix = paints('sk-grid');
+    out.hasTick = typeof window.Pages.skTick === 'function';
+
+    // 真涂一笔：换成洋红，在头部正面范围内按下+拖一格，再读回该格颜色
+    const ci = document.getElementById('sk-color');
+    ci.value = '#ff00ff';
+    ci.dispatchEvent(new Event('input'));
+    const g = document.getElementById('sk-grid');
+    const r = g.getBoundingClientRect();
+    const k = r.width / 64;
+    const mk = (t, x, y) => new MouseEvent(t, {
+      clientX: r.left + (x + 0.5) * k, clientY: r.top + (y + 0.5) * k, bubbles: true
+    });
+    g.dispatchEvent(mk('mousedown', 10, 4));
+    g.dispatchEvent(mk('mousemove', 11, 4));
+    window.dispatchEvent(new MouseEvent('mouseup'));
+    await sleep(300);
+    const px = g.getContext('2d').getImageData(Math.round(10.5 * k), Math.round(4.5 * k), 1, 1).data;
+    out.painted = [px[0], px[1], px[2], px[3]].join(',');
+    out.gridPixAfter = paints('sk-grid');
+
+    /* --- 红石页 --- */
+    const rb = [...document.querySelectorAll('.nav-item')].find(b => b.dataset.page === 'redstone');
+    if (rb) rb.click();
+    await sleep(1500);
+    out.rsParts = document.querySelectorAll('#rs-parts button').length;
+    out.rsSamples = document.querySelectorAll('#rs-samples button').length;
+    out.rsInfo = (document.getElementById('rs-info').innerText || '').trim();
+    out.rsTick = (document.getElementById('rs-tick').innerText || '').trim();
+    out.rsOps = (document.getElementById('rs-tool').innerText || '').trim();
+    out.rsCanvasPix = paints('rs-canvas');
+    out.rsWavePix = paints('rs-wave');
+    out.rsProbes = document.querySelectorAll('#rs-probes .item').length;
+    // 走 10 刻：火把时钟应该翻转出波形
+    document.getElementById('rs-step10').click();
+    await sleep(700);
+    out.rsTickAfter = (document.getElementById('rs-tick').innerText || '').trim();
+    out.rsWavePixAfter = paints('rs-wave');
+    return out;
+  })()`);
+  console.log('V4 创意工具:', JSON.stringify(v4));
+
+  const v4Bad = [];
+  if (v4.palette !== 32) v4Bad.push('调色板没填充: ' + v4.palette);
+  if (v4.parts !== 6) v4Bad.push('部位按钮不是 6 个: ' + v4.parts);
+  if (v4.templates < 4) v4Bad.push('模板按钮不足 4 个: ' + v4.templates);
+  if (v4.tools !== 4) v4Bad.push('画笔工具不是 4 个: ' + v4.tools);
+  if (!v4.validate) v4Bad.push('校验面板没内容');
+  if (!/面/.test(v4.meshLabel)) v4Bad.push('模型规模标签没渲染: ' + v4.meshLabel);
+  if (!(v4.canvasPix > 3000)) v4Bad.push('3D 预览几乎空白（alpha>0 像素 ' + v4.canvasPix + '）');
+  if (!(v4.gridPix > 1000)) v4Bad.push('2D 编辑画布几乎空白（' + v4.gridPix + '）');
+  if (!v4.hasTick) v4Bad.push('window.Pages.skTick 缺失（自动旋转没接主循环）');
+  // 涂的是一格洋红。**不能断言精确值**：2D 画布上叠了 1px 网格线（8% 白），
+  // 采样点正好落在网格线上会被提亮几个数值 —— 判「明显偏洋红」即可。
+  {
+    const p = (v4.painted || '').split(',').map(Number);
+    const magenta = p.length === 4 && p[0] > 200 && p[1] < 90 && p[2] > 200 && p[3] === 255;
+    if (!magenta) v4Bad.push('画笔画不上/颜色不对: ' + v4.painted);
+  }
+  if (!(v4.rsParts === 9)) v4Bad.push('红石元件按钮不是 9 个: ' + v4.rsParts);
+  if (!(v4.rsSamples >= 5)) v4Bad.push('示例电路不足 5 个: ' + v4.rsSamples);
+  if (!/元件/.test(v4.rsInfo)) v4Bad.push('红石状态栏没渲染: ' + v4.rsInfo);
+  if (!v4.rsOps) v4Bad.push('红石操作提示没渲染');
+  if (!(v4.rsCanvasPix > 5000)) v4Bad.push('红石画布几乎空白（' + v4.rsCanvasPix + '）');
+  if (!(v4.rsProbes >= 1)) v4Bad.push('示例电路的探针没列出: ' + v4.rsProbes);
+  if (!(v4.rsWavePix > 200)) v4Bad.push('时序波形没画出来（' + v4.rsWavePix + '）');
+  if (v4.rsTickAfter === v4.rsTick) v4Bad.push('走 10 刻后 tick 没变: ' + v4.rsTick + ' -> ' + v4.rsTickAfter);
+  if (!(v4.rsWavePixAfter > v4.rsWavePix)) v4Bad.push('波形没跟着 tick 增长');
+
   const hardenBad = [];
   // 版本断言从 package.json 现读，避免每次发版都要改测试里的硬编码
   const pkgVersion = require('../package.json').version;
@@ -455,7 +553,7 @@ require('../main');
   if (errors.length) console.log('  ', errors.slice(0, 6).join('\n   '));
 
   fs.rmSync(fx.root, { recursive: true, force: true });
-  const bad = ldBad.concat(sixBad, hardenBad);
+  const bad = ldBad.concat(sixBad, hardenBad, v4Bad);
   if (bad.length) {
     console.error('SMOKE FAILED（断言）: ' + bad.join(' / '));
     app.quit();

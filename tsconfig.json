@@ -39,6 +39,8 @@
     "packbuilder.js",
     "zipwrite.js",
     "accountbook.js",
+    "redstone.js",
+    "skinedit.js",
     "livemetrics.js",
     "craftplanner.js",
     "entitydoctor.js",
