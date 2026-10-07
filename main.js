@@ -15,10 +15,12 @@ let trayHandle = null;   // 托盘句柄（含 refresh）
 let quitting = false;    // 真要退出时置 true，避免被"最小化到托盘"拦下来
 let launching = false;   // 供托盘菜单判断"启动游戏"能否点击
 
-/* 系统级配置持久化：开机自启 / 最小化到托盘 / 语言 / 更新源。
+/* 系统级配置持久化：开机自启 / 最小化到托盘 / 语言 / 更新源 / 上次的窗口大小。
    单独存一份 JSON，不塞渲染层的 localStorage —— 托盘在窗口创建之前就要读它。 */
 const SYS_CONF_PATH = path.join(app.getPath('userData'), 'sysconf.json');
-const SYS_CONF_DEFAULT = { autostart: false, minimizeToTray: false, lang: 'zh-CN', updateFeed: '' };
+/** @type {{ autostart:boolean, minimizeToTray:boolean, lang:string, updateFeed:string, winSize:{w:number,h:number}|null }} */
+const SYS_CONF_DEFAULT = { autostart: false, minimizeToTray: false, lang: 'zh-CN', updateFeed: '', winSize: null };
+/** @type {typeof SYS_CONF_DEFAULT} */
 let sysConf = Object.assign({}, SYS_CONF_DEFAULT);
 
 function loadSysConf() {
@@ -46,21 +48,47 @@ const JAVA_ROOT = app.getPath('userData');   // 自带 Java 装这里，换游�
 
 const emit = (channel, payload) => { if (win && !win.isDestroyed()) win.webContents.send(channel, payload); };
 
+// 窗口尺寸下限：顶部菜单栏会自动横向滚动、主区两列也能收，所以下限只保到"消息区还能看"。
+// 上限刻意不设 —— 玩家想拉多大就拉多大，别替他决定。
+const MIN_W = 960;
+const MIN_H = 620;
+let winSizeTimer = null;
+
+/** 记住玩家自己拖出来的窗口大小（防抖 400ms，拖动过程中不写盘） */
+function scheduleWinSizeSave() {
+  if (winSizeTimer) clearTimeout(winSizeTimer);
+  winSizeTimer = setTimeout(() => {
+    winSizeTimer = null;
+    if (!win || win.isDestroyed()) return;
+    // 最大化 / 全屏 / 最小化时的尺寸不是玩家的选择，不记
+    if (win.isMinimized() || win.isMaximized() || win.isFullScreen()) return;
+    try {
+      const b = win.getNormalBounds();
+      if (b.width >= MIN_W && b.height >= MIN_H) saveSysConf({ winSize: { w: b.width, h: b.height } });
+    } catch {}
+  }, 400);
+}
+
 function createWindow() {
-  // 目标 1440×900，但不能超过屏幕工作区 —— 1280×800 的笔记本上窗口会被系统硬压回来，
+  // 尺寸不写死：优先恢复玩家上次拖出来的大小，第一次启动才用 1440×900。
+  // 两种情况都要夹进屏幕工作区 —— 1280×800 的笔记本上直接给 1440×900 会被系统硬压回来，
   // 与其让系统裁，不如自己算清楚，顺带保证不会跑到屏幕外面去。
   const wa = screen.getPrimaryDisplay().workAreaSize;
-  const width = Math.min(1440, wa.width);
-  const height = Math.min(900, wa.height);
+  const saved = sysConf.winSize;
+  const width = Math.min(Math.max(saved ? saved.w : 1440, MIN_W), wa.width);
+  const height = Math.min(Math.max(saved ? saved.h : 900, MIN_H), wa.height);
   win = new BrowserWindow({
     width,
     height,
-    minWidth: 1180,
-    minHeight: 700,
+    minWidth: MIN_W,
+    minHeight: MIN_H,
     frame: false,
     transparent: false,   // V4.1.0：界面改成纯白，不再需要窗口透明
     resizable: true,
     maximizable: true,
+    // frameless 窗口在 Windows 上靠 thickFrame 提供原生缩放边框；
+    // 显式写上，免得哪天被误设成 false 之后四边都拖不动。
+    thickFrame: true,
     show: false,
     backgroundColor: '#ffffff',
     webPreferences: {
@@ -88,6 +116,8 @@ function createWindow() {
   });
   win.on('show', () => refreshTray());
   win.on('hide', () => refreshTray());
+  // 玩家拖四边改完大小就记下来（防抖，见 scheduleWinSizeSave）
+  win.on('resize', scheduleWinSizeSave);
 }
 
 /* 托盘菜单要显示"最近一次启动用的版本/账户"，主进程自己记一份 */
