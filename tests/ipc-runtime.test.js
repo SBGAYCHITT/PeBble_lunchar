@@ -54,7 +54,7 @@ class StubBrowserWindow {
   isMaximized() { return false; }
   unmaximize() {}
   setTitle() {}
-  getBounds() { return { x: 0, y: 0, width: 1040, height: 680 }; }
+  getBounds() { return { x: 0, y: 0, width: 1440, height: 900 }; }
   setSize() {}
   center() {}
 }
@@ -191,7 +191,7 @@ Module._load = function (request, parent, isMain) {
   });
   await ta('窗口控制通道走 ipcMain.on 而不是 handle', async () => {
     const ons = registered.filter((x) => x.kind === 'on').map((x) => x.ch);
-    for (const c of ['win-minimize', 'win-close', 'set-opacity']) {
+    for (const c of ['win-minimize', 'win-maximize', 'win-close']) {
       assert.ok(ons.indexOf(c) >= 0, '缺失 on: ' + c + '（实际 ' + ons.join(', ') + '）');
     }
   });

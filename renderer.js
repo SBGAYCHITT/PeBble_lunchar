@@ -12,7 +12,7 @@
   /* ---------- 全局状态 ---------- */
   const DEFAULT_CFG = {
     mcDir: '', javaPath: '', mem: 4, jvmArgs: '', version: '',
-    playerName: '', theme: 'dark', opacity: 100, anim: true, source: 'official',
+    playerName: '', anim: true, source: 'official',
     threads: 16, isolation: false, hide: false, winW: 854, winH: 480, fullscreen: false,
     authlibJar: ''
   };
@@ -170,7 +170,8 @@
     for (const v of PL.versions) {
       const d = document.createElement('div');
       d.className = 'item' + (v.id === PL.selectedVersion ? ' selected' : '');
-      d.innerHTML = `<div><div class="t">${P().esc(v.id)}</div><div class="s">${P().esc(v.type || '')}${v.hasJar ? '' : T('launch.missingJar')}</div></div>`;
+      d.innerHTML = `<span class="item-ico">${P().blockIcon(v.type)}</span>` +
+        `<div class="item-main"><div class="t">${P().esc(v.id)}</div><div class="s">${P().esc(v.type || '')}${v.hasJar ? '' : T('launch.missingJar')}</div></div>`;
       d.onclick = () => {
         PL.setVersion(v.id); refreshVersions();
         detectJava(requiredJava(v.id));
@@ -298,9 +299,6 @@
     $('st-jvm').value = PL.cfg.jvmArgs;
     $('st-source').value = PL.cfg.source;
     $('st-threads').value = PL.cfg.threads;
-    $('st-theme').value = PL.cfg.theme;
-    $('st-opacity').value = PL.cfg.opacity;
-    $('opacity-label').textContent = PL.cfg.opacity + '%';
     $('st-anim').checked = !!PL.cfg.anim;
     $('st-isolation').checked = !!PL.cfg.isolation;
     $('st-hide').checked = !!PL.cfg.hide;
@@ -313,11 +311,9 @@
     $('authlib-jar').value = PL.cfg.authlibJar;
   }
 
+  /* V4.1.0：界面固定纯白，没有主题可切；只剩「要不要过渡动画」这一项 */
   function applyTheme() {
-    document.body.classList.toggle('theme-light', PL.cfg.theme === 'light' ||
-      (PL.cfg.theme === 'auto' && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches));
     document.body.classList.toggle('no-anim', !PL.cfg.anim);
-    if (window.api.setOpacity) window.api.setOpacity(PL.cfg.opacity / 100);
   }
 
   function bindSettings() {
@@ -326,8 +322,7 @@
       const handler = () => {
         PL.cfg[key] = parse ? parse(el.value, el) : el.value;
         saveCfg();
-        if (key === 'theme' || key === 'anim') applyTheme();
-        if (key === 'opacity') { $('opacity-label').textContent = PL.cfg.opacity + '%'; if (window.api.setOpacity) window.api.setOpacity(PL.cfg.opacity / 100); }
+        if (key === 'anim') applyTheme();
         if (key === 'mcDir') refreshAll();
       };
       el.addEventListener('change', handler);
@@ -338,8 +333,6 @@
     bind('st-jvm', 'jvmArgs');
     bind('st-source', 'source');
     bind('st-threads', 'threads', v => parseInt(v, 10) || 16);
-    bind('st-theme', 'theme');
-    bind('st-opacity', 'opacity', v => parseInt(v, 10));
     bind('win-w', 'winW', v => parseInt(v, 10) || 854);
     bind('win-h', 'winH', v => parseInt(v, 10) || 480);
     bind('player-name', 'playerName');
@@ -577,7 +570,7 @@
 
   /* ---------- 导航 ---------- */
   const PAGE_INIT = {
-    versions: async () => { await P().refreshInstalled(); if (!$('dl-select').dataset.loaded) loadManifest(); },
+    versions: async () => { await P().refreshInstalled(); if (!$('dl-list').dataset.loaded) loadManifest(); },
     mods: () => P().refreshRes('mods'),
     rps: () => P().refreshRes('rps'),
     shaders: () => P().refreshRes('shaders'),
@@ -604,10 +597,6 @@
 
   PAGE_INIT.modkit = async () => { P().initModkit(); };
 
-  PAGE_INIT.skin = async () => { P().initSkin(); };
-
-  PAGE_INIT.redstone = async () => { P().initRedstone(); };
-
   function bindNav() {
     document.querySelectorAll('.nav-item').forEach(btn => {
       btn.onclick = async () => {
@@ -632,21 +621,35 @@
     el.value = v;
   }
 
+  /* V4.1.0：官方版本从下拉框改成带方块图标的卡片列表（对标 PCL）——
+     下拉框里塞不进图标，而「草方块 = 正式版 / 命令方块 = 快照」正是要一眼看出来的信息。
+     选中项记在容器的 dataset.sel 上，pages.js 的 downloadOfficial 读它。 */
   async function loadManifest() {
-    const sel = $('dl-select');
+    const box = $('dl-list');
     const r = await window.api.getManifest();
-    if (!r.ok) { sel.innerHTML = '<option value="">' + T('dl.manifestFail') + '</option>'; return; }
-    sel.dataset.loaded = '1';
-    sel.innerHTML = '';
+    if (!r.ok) { box.innerHTML = '<div class="empty">' + T('dl.manifestFail') + '</div>'; return; }
+    box.dataset.loaded = '1';
+    box.innerHTML = '';
     for (const v of r.versions) {
       if (v.type !== 'release' && !$('dl-snapshot').checked) continue;
-      const o = document.createElement('option');
-      o.value = v.id;
-      o.textContent = v.id + (v.type === 'release' ? '' : ' · ' + v.type);
-      sel.appendChild(o);
+      const d = document.createElement('div');
+      d.className = 'ver-card';
+      d.dataset.id = v.id;
+      d.innerHTML = `<span class="item-ico">${P().blockIcon(v.type, 26)}</span>` +
+        `<div class="item-main"><div class="t">${P().esc(v.id)}</div>` +
+        `<div class="s">${P().esc(v.type)}</div></div>`;
+      d.onclick = () => {
+        box.querySelectorAll('.ver-card').forEach((x) => x.classList.remove('on'));
+        d.classList.add('on');
+        box.dataset.sel = v.id;
+        syncLoaderMc(v.id);
+      };
+      box.appendChild(d);
     }
-    if (r.latest && r.latest.release) sel.value = r.latest.release;
-    syncLoaderMc(sel.value);
+    // 默认选中最新正式版；没有就退而选第一个
+    const want = (r.latest && r.latest.release) || '';
+    const pick = (want && box.querySelector('.ver-card[data-id="' + want + '"]')) || box.querySelector('.ver-card');
+    if (pick) pick.click(); else { box.dataset.sel = ''; syncLoaderMc(''); }
   }
 
   /* ---------- 事件回传 ---------- */
@@ -685,6 +688,7 @@
   /* ---------- 其它按钮 ---------- */
   function bindMisc() {
     $('btn-min').onclick = () => window.api.minimize();
+    $('btn-max').onclick = () => window.api.maximize();
     $('btn-close').onclick = () => window.api.close();
     $('btn-refresh').onclick = () => refreshAll();
     $('btn-clearlog').onclick = () => { $('log-view').textContent = ''; };
@@ -693,7 +697,7 @@
     $('btn-dl').onclick = () => P().downloadOfficial();
     $('btn-loadervers').onclick = () => P().loadLoaderVersions();
     $('btn-loader-install').onclick = () => P().installLoader();
-    $('dl-select').onchange = (e) => syncLoaderMc(e.target.value);
+    // 版本卡片在点击时自己同步加载器 MC 版本号（见 loadManifest），这里不再需要 change 监听
     $('loader-mc').oninput = () => { loaderMcTouched = true; };
     $('btn-save-refresh').onclick = () => P().refreshSaves();
     $('btn-shot-refresh').onclick = () => P().refreshShots();
@@ -723,17 +727,6 @@
     if (PL.currentPage === 'versions') await P().refreshInstalled();
   }
   PL.refreshAll = refreshAll;
-
-  /* ---------- 渲染主循环 ----------
-   * 目前只有皮肤页的 3D 预览需要逐帧重绘（自动旋转）。
-   * 用 requestAnimationFrame 而不是 setInterval：窗口最小化 / 被遮挡时浏览器本来就会
-   * 暂停 rAF，省得自己判断可见性。不在皮肤页时 skTick() 内部会立刻返回，
-   * 每帧的代价只是一次 classList.contains。 */
-  (function frame() {
-    const pg = P();
-    if (pg && pg.skTick) { try { pg.skTick(); } catch { /* 单帧绘制失败不该拖垮整个循环 */ } }
-    requestAnimationFrame(frame);
-  })();
 
   /* ---------- 初始化 ---------- */
   (async function init() {

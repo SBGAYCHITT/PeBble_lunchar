@@ -1,6 +1,6 @@
 // Pebble Lunchar 主进程：窗口 / 托盘 / 生命周期装配。
 // 所有 ipcMain.handle 已按域拆到 ./ipc（见 ipc/index.js），这里只负责提供它们需要的上下文。
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const mcapi = require('./mcapi');
@@ -47,17 +47,22 @@ const JAVA_ROOT = app.getPath('userData');   // 自带 Java 装这里，换游�
 const emit = (channel, payload) => { if (win && !win.isDestroyed()) win.webContents.send(channel, payload); };
 
 function createWindow() {
+  // 目标 1440×900，但不能超过屏幕工作区 —— 1280×800 的笔记本上窗口会被系统硬压回来，
+  // 与其让系统裁，不如自己算清楚，顺带保证不会跑到屏幕外面去。
+  const wa = screen.getPrimaryDisplay().workAreaSize;
+  const width = Math.min(1440, wa.width);
+  const height = Math.min(900, wa.height);
   win = new BrowserWindow({
-    width: 1040,
-    height: 680,
-    minWidth: 940,
-    minHeight: 620,
+    width,
+    height,
+    minWidth: 1180,
+    minHeight: 700,
     frame: false,
-    transparent: true,
+    transparent: false,   // V4.1.0：界面改成纯白，不再需要窗口透明
     resizable: true,
-    maximizable: false,
+    maximizable: true,
     show: false,
-    backgroundColor: '#00000000',
+    backgroundColor: '#ffffff',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,   // 渲染层与 Node 隔离
@@ -68,7 +73,7 @@ function createWindow() {
       webviewTag: false
     }
   });
-  try { win.setBackgroundMaterial('acrylic'); } catch {}
+  try { win.setBackgroundColor('#ffffff'); } catch {}
   // 必须用 __dirname：相对路径会跟着 app 启动目录跑，换个 cwd 就白屏
   win.loadFile(path.join(__dirname, 'index.html'));
   win.once('ready-to-show', () => win.show());

@@ -27,6 +27,7 @@
       </div>
       <div class="win-controls no-drag">
         <button id="btn-min" class="win-btn" title="最小化">─</button>
+        <button id="btn-max" class="win-btn" title="最大化">□</button>
         <button id="btn-close" class="win-btn close" title="关闭">✕</button>
       </div>
     </div>
@@ -49,8 +50,6 @@
         <button class="nav-item" data-page="world"><span class="ni">🌐</span><span data-i18n="nav.world">世界</span></button>
         <button class="nav-item" data-page="perf"><span class="ni">📈</span><span data-i18n="nav.perf">性能</span></button>
         <button class="nav-item" data-page="modkit"><span class="ni">🧩</span><span data-i18n="nav.modkit">Mod 工具</span></button>
-        <button class="nav-item" data-page="skin"><span class="ni">☻</span><span data-i18n="nav.skin">皮肤</span></button>
-        <button class="nav-item" data-page="redstone"><span class="ni">⏚</span><span data-i18n="nav.redstone">红石</span></button>
       </nav>
 
       <main id="main">
@@ -114,10 +113,11 @@
             <div class="card">
               <div class="card-head"><span>下载官方版本</span></div>
               <div class="row">
-                <select id="dl-select" class="sel"><option value="">加载中…</option></select>
                 <label class="chk"><input id="dl-snapshot" type="checkbox" />含快照</label>
-                <button id="btn-dl" class="ghost-btn">下载</button>
+                <button id="btn-dl" class="primary-btn">下载选中版本</button>
               </div>
+              <!-- 带方块图标的版本列表（草方块 = 正式版 / 命令方块 = 快照） -->
+              <div id="dl-list" class="ver-list scroll"></div>
               <div id="dl-progress" class="progress-wrap hidden">
                 <div class="progress-bar"><div id="dl-fill"></div></div>
                 <div id="dl-text" class="progress-text"></div>
@@ -371,14 +371,6 @@
           </div>
           <div class="set-group">
             <div class="set-title">外观</div>
-            <div class="set-row"><label>主题</label>
-              <select id="st-theme" class="sel">
-                <option value="dark">深色玻璃</option>
-                <option value="light">浅色玻璃</option>
-                <option value="auto">跟随系统</option>
-              </select>
-            </div>
-            <div class="set-row"><label>窗口不透明度</label><input id="st-opacity" type="range" min="60" max="100" step="1" value="100" /><span id="opacity-label">100%</span></div>
             <div class="set-row"><label>动画效果</label><label class="chk"><input id="st-anim" type="checkbox" checked />启用过渡动画</label></div>
           </div>
           <div class="set-group">
@@ -835,124 +827,6 @@
               <div id="mk-problem" class="list"><div class="tip">勾好 mod 后自动检查。</div></div>
             </div>
           </div></div>
-        </div></section>
-
-        <!-- ============ 皮肤编辑器（V4 第五组） ============ -->
-        <section class="page" id="page-skin"><div class="skin-wrap">
-          <!-- 左：3D 预览 -->
-          <div class="card skin-preview">
-            <div class="card-head"><span>3D 预览</span>
-              <span id="sk-fps" class="tip inline"></span></div>
-            <canvas id="sk-canvas" class="skin-canvas" width="320" height="380"></canvas>
-            <div class="row wrap">
-              <label class="chk"><input type="checkbox" id="sk-overlay" checked /> 第二层</label>
-              <label class="chk"><input type="checkbox" id="sk-spin" checked /> 自动旋转</label>
-            </div>
-            <div class="row wrap"><label>缩放</label>
-              <input type="range" id="sk-zoom" class="rng" min="6" max="20" value="9" /></div>
-            <div class="tip">在预览区拖动可旋转视角。模型是标准人形盒模型：头 / 身体 / 双臂 / 双腿，
-              外加帽子 / 外套 / 袖 / 裤组成的第二层。</div>
-          </div>
-
-          <!-- 中：像素编辑 -->
-          <div class="card skin-edit">
-            <div class="card-head"><span>像素编辑</span>
-              <span class="row" id="sk-tools">
-                <button class="mini-btn active" data-sktool="pen">画笔</button>
-                <button class="mini-btn" data-sktool="eraser">橡皮</button>
-                <button class="mini-btn" data-sktool="fill">油漆桶</button>
-                <button class="mini-btn" data-sktool="pick">取色</button>
-              </span></div>
-            <div class="skin-edit-body">
-              <div class="skin-grid-wrap"><canvas id="sk-grid" width="384" height="384"></canvas></div>
-              <div class="skin-col">
-                <div class="card-head"><span>颜色</span></div>
-                <input type="color" id="sk-color" value="#e8b48a" class="skin-color" />
-                <div id="sk-palette" class="skin-palette"></div>
-                <div class="card-head"><span>部位</span></div>
-                <div id="sk-parts" class="skin-parts"></div>
-              </div>
-            </div>
-            <div class="row wrap">
-              <button class="ghost-btn" id="sk-undo">撤销</button>
-              <button class="ghost-btn" id="sk-mirror">左右镜像</button>
-              <span id="sk-pos" class="tip inline"></span>
-            </div>
-            <div class="tip">点画布上的格子涂色。切换「部位」会把对应区域高亮出来 ——
-              新手最容易搞不清「2D 贴图哪一块对应 3D 的哪儿」，用「分区导览」模板一眼就明白了。</div>
-          </div>
-
-          <!-- 右：文件与校验 -->
-          <div class="card skin-side">
-            <div class="card-head"><span>文件</span></div>
-            <div class="row wrap">
-              <button class="primary-btn" id="sk-open">打开…</button>
-              <button class="ghost-btn" id="sk-saveas">另存为…</button>
-            </div>
-            <div id="sk-fileinfo" class="tip"></div>
-            <div class="card-head"><span>模板</span></div>
-            <div id="sk-templates" class="chips"></div>
-            <div class="card-head"><span>校验</span></div>
-            <div id="sk-validate" class="list mini"></div>
-          </div>
-        </div></section>
-
-        <!-- ============ 红石模拟器（V4 第五组） ============ -->
-        <section class="page" id="page-redstone"><div class="rs-wrap">
-          <!-- 左：画布 -->
-          <div class="card rs-main">
-            <div class="card-head"><span>电路</span>
-              <span class="row">
-                <span id="rs-tool" class="tip inline"></span>
-                <label class="chk"><input type="checkbox" id="rs-grid" checked /> 网格</label>
-                <button class="ghost-btn" id="rs-clear">清空</button>
-              </span></div>
-            <canvas id="rs-canvas" class="rs-canvas" width="720" height="520"></canvas>
-            <div class="row wrap"><span id="rs-info" class="tip inline"></span></div>
-          </div>
-
-          <!-- 右：元件与模拟 -->
-          <div class="card rs-side">
-            <div class="card-head"><span>元件</span><span id="rs-hint" class="tip inline"></span></div>
-            <div id="rs-parts" class="rs-parts"></div>
-
-            <div class="card-head"><span>模拟</span><span id="rs-tick" class="tip inline"></span></div>
-            <div class="row wrap">
-              <button class="primary-btn" id="rs-step1">+1 刻</button>
-              <button class="ghost-btn" id="rs-step10">+10 刻</button>
-              <button class="ghost-btn" id="rs-play">连续</button>
-              <button class="ghost-btn" id="rs-reset">重置</button>
-            </div>
-
-            <div class="card-head"><span>时序</span><span id="rs-waveinfo" class="tip inline"></span></div>
-            <canvas id="rs-wave" class="rs-wave" height="130"></canvas>
-            <div id="rs-probes" class="list mini"></div>
-
-            <div class="card-head"><span>示例</span></div>
-            <div id="rs-samples" class="chips"></div>
-
-            <div class="card-head"><span>文件</span></div>
-            <div class="row wrap">
-              <button class="ghost-btn" id="rs-ascii">复制字符画</button>
-              <button class="ghost-btn" id="rs-save">保存…</button>
-              <button class="ghost-btn" id="rs-load">打开…</button>
-            </div>
-
-            <div class="card-head"><span>从存档导入</span></div>
-            <div class="row wrap"><label>存档目录</label>
-              <input id="rs-imp-dir" class="inp" placeholder="saves 里的某个世界" spellcheck="false" />
-              <button class="ghost-btn" id="rs-imp-browse">…</button></div>
-            <div class="row wrap">
-              <label>x1</label><input id="rs-imp-x1" class="inp tiny" value="0" spellcheck="false" />
-              <label>z1</label><input id="rs-imp-z1" class="inp tiny" value="0" spellcheck="false" />
-              <label>x2</label><input id="rs-imp-x2" class="inp tiny" value="15" spellcheck="false" />
-              <label>z2</label><input id="rs-imp-z2" class="inp tiny" value="15" spellcheck="false" />
-              <label>Y</label><input id="rs-imp-y" class="inp tiny" value="64" spellcheck="false" />
-              <button class="ghost-btn" id="rs-imp-go">导入</button>
-            </div>
-            <div class="tip">只读扫存档某一层的方块，把红石元件搬进来模拟。识不出的方块一律当实心块 ——
-              对红石电路来说这是合理近似（玻璃、树叶这类会被算成实心）。</div>
-          </div>
         </div></section>
 
       </main>

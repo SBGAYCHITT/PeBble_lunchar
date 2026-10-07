@@ -5,8 +5,8 @@
 //      参数解构错位。这里手工装配一个最小的 ctx，把各新域的每个 channel
 //      都真调一遍，断言返回结构。
 //
-// 不测的 channel：会弹系统对话框的（skin-pick / skin-save-as / redstone-save /
-//   redstone-load）—— 无头环境里弹不出来；它们的参数拼装由 ipc-contract 静态兜住。
+// 不测的 channel：会弹系统对话框的 —— 无头环境里弹不出来；
+//   它们的参数拼装由 ipc-contract 静态兜住。
 //
 // ⚠️ 坑：ipcMain.handle 的 handler 首参是 **event**，业务参数从第二个开始。
 //   直接 handler(arg) 会让 arg 被当成 event、业务参数变 undefined ——
@@ -39,7 +39,7 @@ const ctx = {
 };
 fs.mkdirSync(ctx.userData, { recursive: true });
 
-for (const d of ['entitydoctor', 'craftplanner', 'livemetrics', 'accountbook', 'skinedit', 'redstone', 'instance']) {
+for (const d of ['entitydoctor', 'craftplanner', 'livemetrics', 'accountbook', 'instance']) {
   require(path.join(ROOT, 'ipc', d + '.js'))(ctx);
 }
 
@@ -258,208 +258,6 @@ const must = (v, msg) => { if (!v) throw new Error(msg || '期望为真'); retur
   await t('acct-bind 缺 id 时 ok:false', async () => {
     const r = await H['acct-bind'](null, {});
     must(r.ok === false);
-  });
-
-  /* ---------- V4 第五组：3D 皮肤编辑器 ---------- */
-  console.log('=== skinedit ===');
-  let skinUrl = '';
-
-  await t('skin-meta 返回部件 / 第二层 / 模板 / 调色板', async () => {
-    const r = await H['skin-meta'](null);
-    must(r.parts.length === 6 && r.overlay.length === 6 && r.templates.length >= 4,
-      'parts=' + r.parts.length + ' overlay=' + r.overlay.length + ' tpl=' + r.templates.length);
-    must(Array.isArray(r.palette) && r.palette.length > 8, '调色板');
-    must(r.faceZh && r.faceZh.front, '面名映射');
-    must(r.size && r.size.w === 64, '尺寸');
-  });
-
-  await t('skin-mesh 默认 72 面；关掉第二层 36 面', async () => {
-    const a = await H['skin-mesh'](null);
-    const b = await H['skin-mesh'](null, false);
-    must(a.ok && a.count === 72, '默认 count=' + a.count);
-    must(b.ok && b.count === 36, '关第二层 count=' + b.count);
-    must(a.faces[0].quad.length === 4 && a.faces[0].uv.w > 0, '每面应有 4 顶点与 uv');
-  });
-
-  await t('skin-template 每个模板都能造出来且是 64×64', async () => {
-    const meta = await H['skin-meta'](null);
-    for (const tpl of meta.templates) {
-      const r = await H['skin-template'](null, tpl.id);
-      must(r.ok && r.w === 64 && r.h === 64, tpl.id + ' -> ' + JSON.stringify(r).slice(0, 120));
-      must(String(r.dataUrl).startsWith('data:image/png;base64,'), tpl.id + ' dataUrl 前缀');
-    }
-  });
-
-  await t('skin-template 未知 id 返回 ok:false 而不是抛错', async () => {
-    const r = await H['skin-template'](null, 'nope');
-    must(r && r.ok === false, JSON.stringify(r));
-  });
-
-  await t('skin-validate 认出合法皮肤，并带第二层覆盖率', async () => {
-    const tpl = await H['skin-template'](null, 'warm');
-    const r = await H['skin-validate'](null, tpl.dataUrl);
-    must(r.ok === true && r.errors.length === 0, JSON.stringify(r).slice(0, 200));
-    must(r.stats && r.stats.colors > 10, '颜色数');
-    must(r.coverage && typeof r.coverage.empty === 'number', '第二层覆盖率');
-  });
-
-  await t('skin-validate 对垃圾输入返回 ok:false', async () => {
-    const r = await H['skin-validate'](null, 'not-a-data-url');
-    must(r && r.ok === false);
-  });
-
-  await t('skin-mirror 返回新图，且镜像两次能还原', async () => {
-    const tpl = await H['skin-template'](null, 'warm');
-    skinUrl = tpl.dataUrl;
-    const once = await H['skin-mirror'](null, skinUrl);
-    must(once.ok && once.swap > 0, JSON.stringify(once).slice(0, 120));
-    const twice = await H['skin-mirror'](null, once.dataUrl);
-    must(twice.ok && twice.dataUrl === skinUrl, '镜像两次应回到原图');
-  });
-
-  await t('skin-mirror 对 64×32 的旧格式图明确拒绝', async () => {
-    const se = require(path.join(ROOT, 'skinedit'));
-    const small = se.toDataUrl(se.blankImage(64, 32));
-    const r = await H['skin-mirror'](null, small);
-    must(r.ok === false && !!r.error, JSON.stringify(r));
-  });
-
-  await t('skin-part-map 按部件裁出放大图（头的展开块是 32×16）', async () => {
-    const r = await H['skin-part-map'](null, skinUrl, 'head', 4);
-    must(r.ok && r.bw === 32 && r.bh === 16 && r.scale === 4,
-      JSON.stringify({ bw: r.bw, bh: r.bh, scale: r.scale }));
-    must(String(r.dataUrl).startsWith('data:image/png;base64,'));
-  });
-
-  await t('skin-part-map 未知部件返回 ok:false', async () => {
-    const r = await H['skin-part-map'](null, skinUrl, 'tail', 4);
-    must(r.ok === false);
-  });
-
-  await t('skin-load 文件不存在时 ok:false（不抛）', async () => {
-    const r = await H['skin-load'](null, path.join(os.tmpdir(), 'pl-no-such-skin.png'));
-    must(r && r.ok === false, JSON.stringify(r));
-  });
-
-  /* ---------- V4 第五组：红石电路模拟器 ---------- */
-  console.log('=== redstone ===');
-
-  await t('redstone-components 返回 9 种元件', async () => {
-    const r = await H['redstone-components'](null);
-    must(Array.isArray(r) && r.length === 9, 'count=' + (r && r.length));
-    must(r.every((c) => c.id && c.zh && c.kind), '每项要有 id / zh / kind');
-  });
-
-  await t('redstone-samples 列出内置示例', async () => {
-    const r = await H['redstone-samples'](null);
-    must(Array.isArray(r) && r.length >= 4, 'count=' + (r && r.length));
-    must(r.every((s) => s.id && s.zh && s.note), '每项要有 id / zh / note');
-  });
-
-  await t('redstone-new 给出空电路', async () => {
-    const r = await H['redstone-new'](null);
-    must(r.ok && r.count === 0 && r.tick === 0, JSON.stringify(r).slice(0, 150));
-  });
-
-  await t('place / set / step 组合出一盏亮的灯', async () => {
-    await H['redstone-new'](null);
-    await H['redstone-place'](null, { x: 0, y: 0, type: 'lever', patch: { facing: 'e' } });
-    await H['redstone-set'](null, { x: 0, y: 0, patch: { on: true } });
-    await H['redstone-place'](null, { x: 1, y: 0, type: 'wire' });
-    const r = await H['redstone-place'](null, { x: 2, y: 0, type: 'lamp' });
-    must(r.ok && r.count === 3, 'count=' + r.count);
-    const step = await H['redstone-step'](null, 2);
-    const wire = step.cells.find((c) => c.type === 'wire');
-    const lamp = step.cells.find((c) => c.type === 'lamp');
-    must(wire.out === 15, '线强度应为 15，实际 ' + wire.out);
-    must(lamp.lit === true, '灯应亮');
-  });
-
-  await t('redstone-set 改 on 时自动推进一刻（扳开关立刻看到下游反应）', async () => {
-    await H['redstone-new'](null);
-    await H['redstone-place'](null, { x: 0, y: 0, type: 'lever', patch: { facing: 'e' } });
-    await H['redstone-place'](null, { x: 1, y: 0, type: 'wire' });
-    await H['redstone-place'](null, { x: 2, y: 0, type: 'lamp' });
-    // 只扳开关，不再手动 step —— 灯必须自己亮
-    const r = await H['redstone-set'](null, { x: 0, y: 0, patch: { on: true } });
-    const lamp = r.cells.find((c) => c.type === 'lamp');
-    must(r.tick === 1, '应自动走过一刻，实际 tick=' + r.tick);
-    must(lamp.lit === true, '扳开关后灯应立刻亮');
-    // 纯配置改动（改延迟）不该推进时间
-    await H['redstone-place'](null, { x: 4, y: 0, type: 'repeater', patch: { facing: 'e' } });
-    const r2 = await H['redstone-set'](null, { x: 4, y: 0, patch: { delay: 3 } });
-    must(r2.tick === 1, '改延迟不该推进 tick，实际 ' + r2.tick);
-    const rep = r2.cells.find((c) => c.type === 'repeater');
-    must(rep.delay === 3, '延迟应为 3，实际 ' + rep.delay);
-  });
-
-  await t('redstone-rotate 改变朝向', async () => {
-    await H['redstone-new'](null);
-    await H['redstone-place'](null, { x: 0, y: 0, type: 'repeater', patch: { facing: 'n' } });
-    const r = await H['redstone-rotate'](null, { x: 0, y: 0 });
-    must(r.cells[0].facing === 'e', 'n 转 90° 应为 e，实际 ' + r.cells[0].facing);
-  });
-
-  await t('redstone-sample 火把时钟真的在振荡', async () => {
-    const r = await H['redstone-sample'](null, 'torchclock');
-    must(r.ok && r.count === 4, JSON.stringify(r).slice(0, 200));
-    const w1 = await H['redstone-wave'](null, 20);
-    must(w1.ok && w1.waves.length >= 1, '应有探针波形');
-    await H['redstone-step'](null, 6);
-    const w2 = await H['redstone-wave'](null, 20);
-    must(w2.waves[0].changes > 2, '波形应有多次翻转，实际 ' + w2.waves[0].changes);
-  });
-
-  await t('redstone-sample 装载后就已经「通上电」（不是一片黑）', async () => {
-    // 火把/中继器 1 tick 延迟 —— 只推进 1 刻的话第一刻只排队不输出，
-    // 示例打开是「没通电」的样子，用户会以为坏了。
-    const r = await H['redstone-sample'](null, 'not');
-    must(r.ok, JSON.stringify(r).slice(0, 150));
-    must(r.tick >= 2, '装载后应已推进至少 2 刻，实际 ' + r.tick);
-    const lamp = r.cells.find((c) => c.type === 'lamp');
-    must(lamp && lamp.lit === true, '非门示例默认（拉杆关）灯应该是亮的');
-    // 扳开拉杆 → 火把灭、灯灭：这才是「非」
-    const on = await H['redstone-set'](null, { x: 0, y: 1, patch: { on: true } });
-    must(on.cells.find((c) => c.type === 'lamp').lit === false, '拉杆打开后灯应灭');
-  });
-
-  await t('redstone-reset 清掉运行状态但保留布局', async () => {
-    await H['redstone-sample'](null, 'not');
-    const r = await H['redstone-reset'](null);
-    must(r.ok && r.count > 0 && r.tick === 0,
-      JSON.stringify({ count: r.count, tick: r.tick }));
-  });
-
-  await t('redstone-probe 能开也能关', async () => {
-    await H['redstone-sample'](null, 'decay');
-    const off = await H['redstone-probe'](null, { x: 18, y: 0, on: false });
-    must(off.probes === 0, 'probes=' + off.probes);
-    const on = await H['redstone-probe'](null, { x: 18, y: 0, on: true });
-    must(on.probes === 1, 'probes=' + on.probes);
-  });
-
-  await t('redstone-ascii 导出字符画', async () => {
-    await H['redstone-sample'](null, 'delay');
-    const r = await H['redstone-ascii'](null);
-    must(r.ok && typeof r.art === 'string' && r.art.length > 0, JSON.stringify(r).slice(0, 120));
-    must(r.art.includes('L'), '应含拉杆的 L');
-  });
-
-  await t('redstone-remove 删掉一个元件', async () => {
-    await H['redstone-new'](null);
-    const s = await H['redstone-sample'](null, 'not');
-    const r = await H['redstone-remove'](null, { x: 0, y: 1 });
-    must(r.ok && r.count === s.count - 1, s.count + ' -> ' + r.count);
-  });
-
-  await t('redstone-sample 未知 id 返回 ok:false', async () => {
-    const r = await H['redstone-sample'](null, 'nope');
-    must(r.ok === false);
-  });
-
-  await t('redstone-import 缺参数时返回 ok:false 而不是抛错', async () => {
-    const r = await H['redstone-import'](null, {});
-    must(r && r.ok === false, JSON.stringify(r).slice(0, 200));
   });
 
   console.log('\n' + (fail === 0 ? '★ 冒烟全部通过' : '★ 冒烟有 ' + fail + ' 项失败') + ' (' + pass + '/' + (pass + fail) + ')');
