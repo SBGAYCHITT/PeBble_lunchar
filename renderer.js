@@ -1,9 +1,24 @@
 // Pebble Lunchar - 渲染层核心：状态、导航、启动、账户、设置
 (function () {
+  /* Lite 版会裁掉若干页面，`$('某按钮').onclick = ...` 这种写法一旦取到 null 就会抛
+     TypeError，把整个 init() 断掉（后面版本刷新、Java 检测都跑不到）。
+     这里给个「空元素替身」：属性可读可写、方法全是空函数，缺元素时静默跳过。
+     完整版所有元素都在，`||` 分支永远不走，行为零变化。 */
+  const NOOP = () => {};
+  /** @type {any} */
+  const EMPTY_EL = {
+    value: '', checked: false, textContent: '', innerHTML: '', disabled: false, hidden: false,
+    scrollTop: 0, scrollHeight: 0, src: '', href: '', files: [], options: [], children: [], dataset: {},
+    style: {}, classList: { add: NOOP, remove: NOOP, toggle: NOOP, contains: () => false },
+    appendChild: NOOP, removeChild: NOOP, remove: NOOP, click: NOOP, focus: NOOP, blur: NOOP,
+    setAttribute: NOOP, getAttribute: () => null, removeAttribute: NOOP,
+    addEventListener: NOOP, removeEventListener: NOOP,
+    querySelector: () => null, querySelectorAll: () => [], contains: () => false
+  };
   /** 按 id 取元素。返回类型放宽到 any：渲染层几乎每处都要直接读写 value / checked / disabled，
    *  而 getElementById 的官方类型是 HTMLElement | null，逐处断言只会制造噪音。
    *  @type {(id: string) => any} */
-  const $ = (id) => document.getElementById(id);
+  const $ = (id) => document.getElementById(id) || EMPTY_EL;
   const P = () => window.Pages;
   /** 取文案。I18N 还没加载时退回中文兜底 fb —— 渐进迁移期间界面永远不会有洞。
    *  @param {string} key @param {Record<string, any>} [params] @param {string} [fb] */
@@ -579,7 +594,13 @@
     logs: () => P().refreshLogs(),
     settings: async () => { syncSettingsUI(); await loadOptionsIntoUI(); },
     lab: async () => { await P().initLab(); P().refreshLabHistory(); },
-    account: async () => { await P().refreshAccounts(); P().refreshMulti(); P().refreshBindings(); },
+    /* 账户页：多开面板与实例绑定面板在 Lite 版里被裁掉了，
+       对应 IPC 域也不注册，所以按 DOM 存在性决定要不要拉数据。 */
+    account: async () => {
+      await P().refreshAccounts();
+      if (document.getElementById('ml-list')) P().refreshMulti();
+      if (document.getElementById('ab-bind')) P().refreshBindings();
+    },
     about: async () => {
       const info = await window.api.appInfo();
       $('about-info').textContent = T('about.version', { version: info.version, electron: info.electron, node: info.node });
@@ -744,8 +765,12 @@
     bindSettings(); bindSystem(); bindAccount(); bindNav(); bindEvents(); bindMisc();
     await loadSysConf();       // 自启/托盘/语言/更新源（主进程持久化）
     refreshJavaInstalled();    // 启动器自己下载过的 Java
-    P().initInstancePage();
-    await P().refreshInstances();   // 必须在刷新版本之后：实例规模统计要用得到
+    // 实例系统要整页 DOM 才工作：Lite 版把「实例」页裁掉了，这里必须跳过，
+    // 否则会去调没注册的实例 IPC，把后面的版本刷新一起带崩。
+    if (document.getElementById('page-instances')) {
+      P().initInstancePage();
+      await P().refreshInstances();   // 必须在刷新版本之后：实例规模统计要用得到
+    }
     await refreshVersions();
     await detectJava(PL.selectedVersion ? requiredJava(PL.selectedVersion) : 0);
     await loadOptionsIntoUI();

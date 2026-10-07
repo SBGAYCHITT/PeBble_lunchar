@@ -13,6 +13,14 @@ dist*/
 # ===== NSIS 脚本：由 make-exe.js 从 package.json 现生成，版本号/OutFile 路径都是本机的 =====
 tools/pl.nsi
 
+# ===== Lite 版前端入口：由 scripts/make-lite.js 从 index.html 现裁，不进仓库（避免与真源漂移） =====
+index.lite.html
+build/lite/
+# ===== Lite 版 Electron 运行时：由 scripts/make-lite-dist.js 从 node_modules 现裁（约 160MB） =====
+build/electron-lite/
+# 上面那个脚本的重建标记（放在 build/ 根，免得被打进安装包）
+build/.lite-dist-stamp.json
+
 # ===== 临时 / 调试产物 =====
 *.bak
 auto-test-log*.txt

@@ -4,9 +4,22 @@
   /** 在线仓库的安装进度回调只允许绑一次。放闭包变量而不是 window.__xxx：
    *  既不污染全局，也让类型检查能认出来。 */
   let storeProgressBound = false;
+  /* 空元素替身（理由同 renderer.js）：Lite 版裁掉部分页面后，
+     `$('某按钮').onclick = ...` 取到 null 会抛 TypeError，把调用链打断。 */
+  const NOOP = () => {};
+  /** @type {any} */
+  const EMPTY_EL = {
+    value: '', checked: false, textContent: '', innerHTML: '', disabled: false, hidden: false,
+    scrollTop: 0, scrollHeight: 0, src: '', href: '', files: [], options: [], children: [], dataset: {},
+    style: {}, classList: { add: NOOP, remove: NOOP, toggle: NOOP, contains: () => false },
+    appendChild: NOOP, removeChild: NOOP, remove: NOOP, click: NOOP, focus: NOOP, blur: NOOP,
+    setAttribute: NOOP, getAttribute: () => null, removeAttribute: NOOP,
+    addEventListener: NOOP, removeEventListener: NOOP,
+    querySelector: () => null, querySelectorAll: () => [], contains: () => false
+  };
   /** 按 id 取元素，类型放宽到 any（理由同 renderer.js 的 $）
    *  @type {(id: string) => any} */
-  const $ = (id) => document.getElementById(id);
+  const $ = (id) => document.getElementById(id) || EMPTY_EL;
   const S = () => window.PL; // 全局状态（由 renderer.js 提供）
   const fmtSize = (b) => b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB';
   const fmtTime = (t) => {

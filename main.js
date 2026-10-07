@@ -4,7 +4,13 @@ const { app, BrowserWindow, ipcMain, dialog, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const mcapi = require('./mcapi');
-const multilaunch = require('./multilaunch');
+// Lite 版会把多开登记一起裁掉。取不到就当「没有并行多开」，
+// 托盘的运行数显示 0、停止项点了也没反应 —— 但不能因此让主进程起不来。
+let multilaunch = null;
+try { multilaunch = require('./multilaunch'); }
+catch (e) {
+  if (!(e.code === 'MODULE_NOT_FOUND' && String(e.message).includes("'./multilaunch'"))) throw e;
+}
 const tray = require('./tray');
 const sysconf = require('./sysconf');
 const i18n = require('./i18n');
@@ -102,8 +108,11 @@ function createWindow() {
     }
   });
   try { win.setBackgroundColor('#ffffff'); } catch {}
-  // 必须用 __dirname：相对路径会跟着 app 启动目录跑，换个 cwd 就白屏
-  win.loadFile(path.join(__dirname, 'index.html'));
+  // 必须用 __dirname：相对路径会跟着 app 启动目录跑，换个 cwd 就白屏。
+  // Lite 版会多打一份裁剪过页面入口 index.lite.html（见 scripts/make-lite.js），
+  // 有它就优先用；标准版包里没有这个文件，走的仍然是 index.html。
+  const litePage = path.join(__dirname, 'index.lite.html');
+  win.loadFile(fs.existsSync(litePage) ? litePage : path.join(__dirname, 'index.html'));
   win.once('ready-to-show', () => win.show());
   win.on('closed', () => { win = null; refreshTray(); });
   // 开了"最小化到托盘"之后，点关闭只是把窗口藏起来，托盘里还能叫回来
@@ -126,7 +135,7 @@ let lastLaunch = { version: '', playerName: '', gameDir: '' };
 function refreshTray() { if (trayHandle) trayHandle.refresh(); }
 
 function trayState() {
-  const running = (multilaunch.list() || []).filter((x) => x.alive !== false).length;
+  const running = multilaunch ? (multilaunch.list() || []).filter((x) => x.alive !== false).length : 0;
   return {
     visible: !!(win && !win.isDestroyed() && win.isVisible()),
     launching,
@@ -156,8 +165,10 @@ function setupTray() {
       } else if (id === 'launch') {
         emit('tray-action', 'launch');   // 渲染层收到后按当前选择启动
       } else if (id === 'stopall') {
-        multilaunch.stopAll((s) => emit('game-log', '[多开] ' + s));
-        emit('ml-changed', multilaunch.list());
+        if (multilaunch) {
+          multilaunch.stopAll((s) => emit('game-log', '[多开] ' + s));
+          emit('ml-changed', multilaunch.list());
+        }
       } else if (id === 'openGameDir') {
         if (lastLaunch.gameDir) mcapi.openFolder(lastLaunch.gameDir);
       } else if (id === 'autostart') {

@@ -531,6 +531,67 @@ node make-exe.js
 > - 打包前 `dist/win-unpacked` 必须清空，否则 electron-builder 的 `emptyDir` 会触发沙箱批量删除守卫而失败。
 > - NSIS 脚本用 `File /r /x debug.log /x run.cmd "src\*"`，以排除 electron-builder 留下的临时文件。
 
+## Lite 精简版
+
+标准版是「全都给你」，Lite 版是「只给能开游戏的那部分」。两者**共用同一份源码**，
+靠构建配置分流 —— 不存在第二套需要同步维护的代码。
+
+| | 标准版 | Lite |
+|---|---|---|
+| 页面 | 16 个 | **5 个**（启动 / 版本 / 账户 / 设置 / 关于） |
+| 单文件安装包 | 75.3 MB | **~20 MB** |
+| 解包后 | 260 MB | 204 MB |
+| 语言包 | 55 个 | **2 个**（zh-CN / en-US） |
+| 图形后端 | 完整 | 去掉 SwiftShader / ANGLE |
+| 账户 / 设置 / Java | 与标准版共用（userData 同名，不用重新登录） | |
+
+**裁掉**：Mod / 资源包 / 光影 / 存档 / 截图管理、实例与迁移、世界工具、性能诊断、
+Mod 工具、JVM 调优实验室、运行时监控、Mod 商店、存档时光机、并行多开。
+**留下**的都是「没有就开不了游戏」的：选版本 → 登账户 → 填内存 → 点启动，
+外加官方版本下载与 Forge/Fabric/Quilt/NeoForge/OptiFine 安装。
+
+### 构建
+
+```bash
+npm run lite:front     # 从 index.html 裁出 index.lite.html（只留 5 页）
+npm run lite:verify    # 校验白名单覆盖依赖闭包 + preload 与 IPC 通道对账
+npm run lite:runtime   # 生成精简版 Electron 运行时 build/electron-lite
+PL_OUT_DIR=dist-lite npm run lite:pack          # 产出 win-unpacked
+
+PL_SRC=dist-lite/win-unpacked PL_OUT=dist-lite/Pebble-Lunchar-Lite.exe \
+  PL_APPNAME="Pebble Lunchar Lite" PL_EXENAME="Pebble Lunchar.exe" \
+  PL_INSTDIR=PebbleLuncharLite node make-exe.js  # 编译单文件 exe 并签名
+```
+
+（`npm run lite` 把前三步串起来跑。）
+
+> `PL_INSTDIR` 必须与标准版不同，否则两版装进同一个目录互相覆盖 ——
+> 装完 Lite 再点标准版的快捷方式，起来的其实是 Lite。
+
+### 三条硬约束
+
+1. **前端只维护一份**。`index.lite.html` 由 `scripts/make-lite.js` 从 `index.html` 现裁，
+   不手抄第二遍 —— 否则标准版改了启动页、Lite 忘了同步就是线上事故。
+2. **被裁模块用「文件存在性」降级，不 catch 异常**。`ipc/index.js` 按域文件是否在包里
+   决定注册与否；`ipc/launch.js`、`main.js` 对可选能力（时光机 / Mod 守卫 / 多开 /
+   崩溃规则库）用 `optional()` 包住，文件不在就退化成「没有这个功能」，
+   而不是让整个域注册失败（那样连游戏都开不了）。刻意不去吞模块内部的报错，
+   免得把真 bug 变成「功能静默消失」。
+3. **不删文件，只挑文件**。沙箱对「单轮批量删除」有 50 项上限，
+   electron-builder 自带的 `electronLanguages` 会一次 `rm` 掉 53 个语言包，
+   直接把 packaging 打挂（`SAFE_DELETE_BULK_CONFIRM_REQUIRED`）。
+   改成 `scripts/make-lite-dist.js` 用 `cpSync` 的 filter 在**复制阶段**跳过，
+   全程不调用任何删除 API。
+
+> **`LICENSES.chromium.html`（约 9 MB）在 Lite 里保留了**。它是纯文本、压完很小，
+> 删掉省不下多少，却会让「分发时未附带第三方许可证声明」变成实打实的合规问题。
+> 真要删：把 `scripts/make-lite-dist.js` 里的 `DROP_LICENSES` 改成 `true`。
+
+> ⚠️ **删图形后端的代价**：Lite 去掉了 `libGLESv2.dll` / `libEGL.dll` /
+> `vk_swiftshader.dll` / `d3dcompiler_47.dll`。它们只在 Chromium 走 GPU 加速
+> （ANGLE → D3D11 / SwiftShader）时才加载，而本应用界面是纯 DOM + 2D canvas，
+> 软件光栅就够。但标准版的 GPU 回退链更完整 —— 遇到显示异常请换标准版。
+
 ## 安全
 
 | 项目 | 做法 |

@@ -52,10 +52,17 @@ const DOMAINS = [
 
 /**
  * 注册全部 IPC handler
+ *
+ * Lite 版会在打包时把这些域文件一起排除掉（配合 package.json 的 build.files 白名单）。
+ * 所以这里只按「域文件是否在包里」来决定注册与否 —— 刻意不去 catch require 的异常，
+ * 那样会把域内部的真 bug 一并吞掉，变成难查的「功能静默消失」。
  * @param {IpcContext} ctx
  */
 function registerAll(ctx) {
-  for (const d of DOMAINS) require(d)(ctx);
+  for (const d of DOMAINS) {
+    if (!require('fs').existsSync(require('path').join(__dirname, d + '.js'))) continue;
+    require(d)(ctx);
+  }
 }
 
 module.exports = { registerAll, DOMAINS };

@@ -49,6 +49,9 @@ html, body {
 .logo-text { font-size: 14px; font-weight: 700; letter-spacing: 2px; }
 .logo-text em { font-style: normal; color: var(--accent); }
 .logo-badge { font-size: 10px; padding: 2px 8px; border-radius: 99px; background: rgba(0, 179, 164, 0.22); color: var(--accent); border: 1px solid rgba(0, 179, 164, 0.4); }
+/* Lite 版徽标：只有精简构建会把 .lite 这个 span 放进标题栏（见 scripts/make-lite.js），
+   标准版不渲染它，所以这条样式对标准版零影响。 */
+.logo-badge.lite { background: var(--accent-grad); color: #fff; border-color: transparent; font-weight: 700; letter-spacing: .6px; }
 .win-controls { display: flex; gap: 4px; -webkit-app-region: no-drag; }
 .win-btn { width: 34px; height: 30px; border: none; border-radius: 8px; background: transparent; color: var(--text-dim); font-size: 12px; cursor: pointer; transition: background .15s, color .15s; }
 .win-btn:hover { background: var(--glass-strong); color: var(--text); }

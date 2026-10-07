@@ -17,6 +17,13 @@ const OUT = path.resolve(ROOT, process.env.PL_OUT || 'dist/Pebble-Lunchar.exe');
 const NSI = path.join(ROOT, 'tools/pl.nsi');
 const MAKENSIS = path.join(ROOT, 'tools/makensis.exe');
 
+/* 应用标识可用环境变量覆盖（默认值 = 原来的硬编码，标准版行为完全不变）。
+   Lite 版必须换 INSTDIRNAME：否则它和标准版装进同一个目录，互相覆盖对方的文件，
+   用户装完 Lite 再打开标准版的快捷方式，起来的其实是 Lite。 */
+const APPNAME = process.env.PL_APPNAME || 'Pebble Lunchar';
+const EXENAME = process.env.PL_EXENAME || 'Pebble Lunchar.exe';
+const INSTDIRNAME = process.env.PL_INSTDIR || 'PebbleLunchar';
+
 // 是否走 SignPath 免费签名（开源路线）。不设（默认）则沿用本地自签名（scripts/sign.js）。
 const USE_SIGNPATH = process.env.SIGNPATH === '1';
 
@@ -100,19 +107,19 @@ const VER4 = (pkg.version.replace(/[^\d.]/g, '').split('.').concat(['0', '0', '0
   .map((n) => String(Math.min(65535, parseInt(n, 10) || 0))).join('.'));
 
 const nsi = `
-!define APPNAME "Pebble Lunchar"
-!define EXENAME "Pebble Lunchar.exe"
-!define INSTDIRNAME "PebbleLunchar"
+!define APPNAME "${APPNAME}"
+!define EXENAME "${EXENAME}"
+!define INSTDIRNAME "${INSTDIRNAME}"
 !define VERSION "${pkg.version}"
 !define BUILDVER "${BUILDVER}"
 
 VIProductVersion "${VER4}"
-VIAddVersionKey /LANG=2052 "ProductName" "Pebble Lunchar"
+VIAddVersionKey /LANG=2052 "ProductName" "${APPNAME}"
 VIAddVersionKey /LANG=2052 "FileDescription" "Minecraft 启动器（免安装单文件）"
 VIAddVersionKey /LANG=2052 "FileVersion" "\${VERSION}"
 VIAddVersionKey /LANG=2052 "ProductVersion" "\${VERSION}"
 VIAddVersionKey /LANG=2052 "LegalCopyright" "MIT License"
-VIAddVersionKey /LANG=1033 "ProductName" "Pebble Lunchar"
+VIAddVersionKey /LANG=1033 "ProductName" "${APPNAME}"
 VIAddVersionKey /LANG=1033 "FileDescription" "Minecraft launcher (portable single file)"
 VIAddVersionKey /LANG=1033 "FileVersion" "\${VERSION}"
 VIAddVersionKey /LANG=1033 "ProductVersion" "\${VERSION}"

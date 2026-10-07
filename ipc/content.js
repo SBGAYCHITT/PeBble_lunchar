@@ -1,6 +1,8 @@
-// 资源目录：Mod / 资源包 / 光影 / 存档 / 截图 / 崩溃报告 / options.txt
+// 资源目录：Mod / 资源包 / 光影 / 存档 / 截图 / 崩溃报告
+//
+// 注意「打开目录 / 打开文件 / 复制文本 / 读写信中 options.txt」不在这里 ——
+// 它们已挪到 ipc/base.js：Lite 版要裁资源管理但不裁设置页，留在本域会让 Lite 断链。
 const fs = require('fs');
-const { shell, clipboard } = require('electron');
 const mcapi = require('../mcapi');
 const packinfo = require('../packinfo');
 const modguard = require('../modguard');
@@ -18,25 +20,15 @@ module.exports = function register(ctx) {
   ipcMain.handle('read-log', (_e, p, len) => mcapi.readLogTail(p, len));
   ipcMain.handle('toggle-file', (_e, p) => mcapi.toggleFile(p));
   ipcMain.handle('delete-path', (_e, p) => mcapi.deletePath(p));
-  ipcMain.handle('open-folder', (_e, p) => mcapi.openFolder(p));
   ipcMain.handle('copy-file', (_e, src, destDir) => mcapi.copyFile(src, destDir));
   ipcMain.handle('zip-dir', (_e, src, destZip) => mcapi.zipDir(src, destZip));
-  ipcMain.handle('open-path', (_e, p) => { shell.openPath(p); });
-  ipcMain.handle('show-in-explorer', (_e, p) => { shell.showItemInFolder(p); });
-  ipcMain.handle('read-options', (_e, gd) => mcapi.readOptions(gd));
-  ipcMain.handle('write-options', (_e, gd, patch) => mcapi.writeOptions(gd, patch));
 
-  /* ---------- 崩溃报告：读取全文 / 一键复制 ---------- */
+  /* ---------- 崩溃报告：读取全文 ---------- */
   ipcMain.handle('read-crash-report', (_e, p) => {
     try {
       if (!p || !fs.existsSync(p)) return { ok: false, error: '文件不存在' };
       return { ok: true, text: fs.readFileSync(p, 'utf8') };
     } catch (e) { return { ok: false, error: e.message }; }
-  });
-
-  ipcMain.handle('copy-text', (_e, text) => {
-    try { clipboard.writeText(String(text || '')); return { ok: true }; }
-    catch (e) { return { ok: false, error: e.message }; }
   });
 
   /**

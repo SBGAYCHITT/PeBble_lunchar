@@ -1,12 +1,25 @@
 // 启动游戏：启动前自动快照 + 多开去重 + 崩溃诊断回传
+//
+// 这四个是「增强能力」，Lite 版会把它们连文件一起裁掉（见 package.json 的 build.files）。
+// 取不到就整个降级成「纯启动」，而不是让启动域注册失败 —— 那样连游戏都开不了。
+// 只认「模块文件不在包里」这一种缺失；模块内部依赖缺失属于真 bug，照样往外抛。
 const fs = require('fs');
 const path = require('path');
 const launcher = require('../launcher');
 const mcapi = require('../mcapi');
-const crashdoctor = require('../crashdoctor');
-const timemachine = require('../savetimemachine');
-const modguard = require('../modguard');
-const multilaunch = require('../multilaunch');
+
+/** @param {string} rel @returns {any} */
+function optional(rel) {
+  try { return require(rel); }
+  catch (e) {
+    if (e.code === 'MODULE_NOT_FOUND' && String(e.message).includes("'" + rel + "'")) return null;
+    throw e;
+  }
+}
+const crashdoctor = optional('../crashdoctor');
+const timemachine = optional('../savetimemachine');
+const modguard = optional('../modguard');
+const multilaunch = optional('../multilaunch');
 
 const MAX_AUTO_SNAPSHOT_BYTES = 8 * 1024 * 1024 * 1024; // 超过 8GB 的存档不自动快照（太慢）
 const AUTO_SNAPSHOT_MIN_INTERVAL = 60 * 1000;           // 同一分钟内不重复打点
@@ -49,6 +62,7 @@ function dirSize(dir) {
  */
 async function autoSnapshotBeforeLaunch(gameDir, sendLog, TM_DIR, AUTO_KEEP) {
   const stat = { snapped: 0, skipped: 0, tooBig: 0 };
+  if (!timemachine) return stat;                    // Lite 版没有时光机
   if (!gameDir || !fs.existsSync(gameDir)) return stat;
 
   const jobs = [];
@@ -82,6 +96,7 @@ async function autoSnapshotBeforeLaunch(gameDir, sendLog, TM_DIR, AUTO_KEEP) {
 
 /* ---------- 崩溃报告摘要 + 本地规则库诊断（游戏异常退出时给出真正原因与可操作建议） ---------- */
 function crashSummary(gameDir) {
+  if (!crashdoctor) return null;                    // Lite 版不带崩溃规则库
   try {
     const dir = path.join(gameDir || '', 'crash-reports');
     if (!gameDir || !fs.existsSync(dir)) return null;
@@ -136,7 +151,7 @@ module.exports = function register(ctx) {
 
     // 并行多开的重复检查：同「实例 + 账户」已经在跑就直接拦掉
     // （同 gameDir 两个客户端会互写 options.txt / latest.log；同账户会被服务端互踢）
-    if (opts && opts.register !== false && !opts.force && !opts.lab) {
+    if (multilaunch && opts && opts.register !== false && !opts.force && !opts.lab) {
       const busy = multilaunch.occupied({
         instanceId: opts.instanceId,
         accountUuid: opts.account && opts.account.uuid
@@ -171,7 +186,7 @@ module.exports = function register(ctx) {
 
       // 并行多开登记：同一（实例，账户）组合已经有进程在跑就别再开一个
       let entry = null;
-      if (opts.register !== false) {
+      if (multilaunch && opts.register !== false) {
         entry = multilaunch.add({
           pid: child.pid,
           instanceId: opts.instanceId, instanceName: opts.instanceName,
@@ -181,7 +196,7 @@ module.exports = function register(ctx) {
           version: opts.version, gameDir
         });
       }
-      emit('ml-changed', multilaunch.list());
+      emit('ml-changed', multilaunch ? multilaunch.list() : []);
       const pump = (chunk) => {
         buf += chunk.toString();
         const lines = buf.split('\n');
@@ -195,6 +210,7 @@ module.exports = function register(ctx) {
       };
       // 没有崩溃报告时，用游戏输出本身跑一遍规则库
       const diagnoseLogTail = () => {
+        if (!crashdoctor) { sendLog('[启动器] 游戏异常退出，退出码见上。'); return; }
         const tail = recent.join('\n');
         if (!tail.trim()) return;
         const d = crashdoctor.diagnose(tail);
@@ -210,7 +226,7 @@ module.exports = function register(ctx) {
       child.stderr.on('data', pump);
       child.on('error', (e) => { sendLog('[启动器] 进程错误: ' + e.message); sendState('error', -1); });
       child.on('close', (code) => {
-        if (entry) { multilaunch.markExited(child.pid); emit('ml-changed', multilaunch.list()); }
+        if (entry && multilaunch) { multilaunch.markExited(child.pid); emit('ml-changed', multilaunch.list()); }
         if (code !== 0 && code !== null) {
           const c = crashSummary(gameDir);
           if (c) {
