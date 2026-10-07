@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "pebble-metrics",
+  "version": "${version}",
+  "name": "Pebble Lunchar Metrics",
+  "description": "把 FPS / TPS / 内存等运行时指标写给 Pebble Lunchar 启动器，并提供一个可开关的游戏内悬浮窗。",
+  "authors": [
+    "Felix"
+  ],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.pebble.lunchar.metrics.PebbleMetricsClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.15.0",
+    "fabric-api": "*",
+    "minecraft": "*"
+  }
+}

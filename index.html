@@ -295,6 +295,16 @@
             <p class="tip">同一个「实例 + 账户」组合不会被重复启动：同目录两个客户端会互写 <code>options.txt</code> 与 <code>logs/latest.log</code>，
               同账户还会在服务端互相踢下线。要同时开多个，请给它们分配不同的实例（见「实例」页）。</p>
           </div>
+
+          <div class="set-group">
+            <div class="set-title">实例账户绑定
+              <span class="row"><button class="ghost-btn" id="ab-refresh">⟳</button></span></div>
+            <div id="ab-summary" class="tip">尚未加载。</div>
+            <div id="ab-stale" class="list mini"></div>
+            <div id="ab-bind"></div>
+            <p class="tip">绑定记在<b>实例</b>上（不是账户上），所以删掉账户不会留下孤儿绑定；绑定失效时会自动回退到活动账户并在上面提示。
+              并行多开的正确姿势就是「每个实例绑不同账户」。</p>
+          </div>
         </div></section>
 
         <!-- ============ JVM 调优实验室 ============ -->
@@ -439,6 +449,8 @@
             <button class="tab" data-wtab="merge">区域搬运</button>
             <button class="tab" data-wtab="map">地图预览</button>
             <button class="tab" data-wtab="db">全局检索</button>
+            <button class="tab" data-wtab="ent">实体清理</button>
+            <button class="tab" data-wtab="craft">合成规划</button>
           </div>
 
           <!-- 版本控制 -->
@@ -512,6 +524,77 @@
             <div class="card-head"><span>检索结果</span></div>
             <div id="wdb-results" class="list"></div>
           </div></div>
+
+          <!-- 实体清理建议（V4 第二组尾巴 R11） -->
+          <div class="wtab" id="wtab-ent"><div class="col-left">
+            <div class="card">
+              <div class="card-head"><span>选择存档目录</span>
+                <span class="row"><button class="primary-btn" id="ed-run">开始诊断</button></span></div>
+              <div class="row wrap"><input id="ed-dir" class="inp" placeholder="Minecraft 存档目录（含 level.dat）" spellcheck="false" />
+                <button class="ghost-btn" id="ed-browse">浏览</button></div>
+              <div class="row wrap"><label>诊断维度</label>
+                <label class="chk"><input type="checkbox" id="ed-ow" checked /> 主世界</label>
+                <label class="chk"><input type="checkbox" id="ed-ne" checked /> 下界</label>
+                <label class="chk"><input type="checkbox" id="ed-en" checked /> 末地</label>
+              </div>
+              <div class="tip">只读扫描 <code>region</code> 与 <code>entities</code> 两个来源（1.18 起实体已独立成目录，
+                同一区块以 entities 为准）。加权成本是<b>启发式估算</b>，只用来排序，不代表 Minecraft 的真实 tick 开销。</div>
+            </div>
+            <div class="card">
+              <div class="card-head"><span>单维度分布</span>
+                <span class="row"><select id="ed-dim" class="sel">
+                  <option value="overworld">主世界</option><option value="nether">下界</option><option value="end">末地</option>
+                </select><button class="ghost-btn" id="ed-scan">扫描该维度</button></span></div>
+              <div id="ed-scan-info" class="tip">尚未扫描。</div>
+              <div id="ed-chunks" class="list mini"></div>
+            </div>
+          </div><div class="col-right">
+            <div class="card fill scroll">
+              <div class="card-head"><span>诊断结论</span>
+                <span class="row"><span id="ed-score" class="tip inline"></span>
+                  <button class="ghost-btn" id="ed-copy">复制报告</button></span></div>
+              <div id="ed-summary" class="tip">尚未诊断。选好存档目录后点「开始诊断」。</div>
+              <div id="ed-cats" class="list"></div>
+              <div id="ed-findings" class="list"></div>
+              <div id="ed-cmds" class="list"></div>
+            </div>
+          </div></div>
+
+          <!-- 离线合成规划（V4 第二组尾巴 R12） -->
+          <div class="wtab" id="wtab-craft"><div class="col-left">
+            <div class="card">
+              <div class="card-head"><span>要合成什么</span>
+                <span class="row"><button class="ghost-btn" id="cp-clear">清空</button><button class="primary-btn" id="cp-plan">开始规划</button></span></div>
+              <div class="row wrap"><input id="cp-q" class="inp" placeholder="搜中文名或 id，如「钻石剑」「diamond」" spellcheck="false" />
+                <input id="cp-n" class="inp tiny" type="number" value="1" min="1" />
+                <button class="ghost-btn" id="cp-add">添加</button></div>
+              <div id="cp-sug" class="list mini"></div>
+              <div id="cp-targets" class="list"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><span>手上已有（可选）</span>
+                <span class="row"><span id="cp-meta" class="tip inline"></span></span></div>
+              <div class="row wrap"><label class="chk"><input type="checkbox" id="cp-usesave" /> 从存档统计</label>
+                <input id="cp-savedir" class="inp" placeholder="存档目录" spellcheck="false" />
+                <button class="ghost-btn" id="cp-savedir-browse">浏览</button></div>
+              <div class="tip">勾上后会解压该存档全部区块、汇总容器里的物品，<b>比较慢</b>。不勾也行 —— 直接在下面手填库存。</div>
+              <div class="row wrap"><input id="cp-have-q" class="inp" placeholder="已有材料（中文名或 id）" spellcheck="false" />
+                <input id="cp-have-n" class="inp tiny" type="number" value="64" min="0" />
+                <button class="ghost-btn" id="cp-have-add">加库存</button></div>
+              <div id="cp-havesug" class="list mini"></div>
+              <div id="cp-have" class="list mini"></div>
+              <div class="row wrap"><label class="chk"><input type="checkbox" id="cp-uncraft" /> 允许拆解（方块→锭，可能成环）</label></div>
+            </div>
+          </div><div class="col-right">
+            <div class="card fill scroll">
+              <div class="card-head"><span>材料清单</span><span id="cp-sum" class="tip inline"></span></div>
+              <div id="cp-result" class="tip">尚未规划。左边加几样要合成的东西，再点「开始规划」。</div>
+              <div id="cp-gaps" class="list"></div>
+              <div id="cp-base" class="list"></div>
+              <div id="cp-order" class="list"></div>
+              <div id="cp-steps" class="list mini"></div>
+            </div>
+          </div></div>
         </div></section>
 
         <section class="page" id="page-perf"><div class="world-wrap">
@@ -519,6 +602,7 @@
             <button class="tab active" data-ptab="diag">性能诊断</button>
             <button class="tab" data-ptab="tune">自动调参</button>
             <button class="tab" data-ptab="rules">检查项</button>
+            <button class="tab" data-ptab="live">运行时监控</button>
           </div>
 
           <!-- 性能诊断 -->
@@ -570,6 +654,33 @@
             <div class="card-head"><span>诊断规则库</span>
               <span class="row"><button class="ghost-btn" id="pr-load">加载</button></span></div>
             <div id="pr-list" class="list"></div>
+          </div></div>
+
+          <!-- 运行时监控（V4 第三组尾巴 R13：游戏内悬浮窗的数据链路） -->
+          <div class="wtab stack" id="ptab-live"><div class="card">
+            <div class="card-head"><span>数据来源</span>
+              <span class="row"><label class="chk"><input type="checkbox" id="lv-auto" /> 每 3 秒自动刷新</label>
+                <button class="ghost-btn" id="lv-once">立即取样</button>
+                <button class="primary-btn" id="lv-toggle">开始监控</button></span></div>
+            <div class="row wrap"><label>游戏目录</label>
+              <input id="lv-dir" class="inp" placeholder=".minecraft 或版本隔离后的游戏目录" spellcheck="false" />
+              <button class="ghost-btn" id="lv-browse">浏览</button>
+              <label>时间窗</label>
+              <select id="lv-win" class="sel">
+                <option value="0">全部</option><option value="300000">最近 5 分钟</option>
+                <option value="1800000">最近 30 分钟</option><option value="3600000">最近 1 小时</option>
+              </select></div>
+            <div class="tip">两层数据源：<b>① 日志</b>（零依赖，读 <code>logs/latest.log</code> 的卡顿与 GC）——
+              只要开过游戏就有；<b>② 伴随 Mod</b>（可选，读 <code>pebble-metrics.jsonl</code>）—— 装了才有 FPS / TPS / 内存曲线。
+              日志<b>推算不出真实 FPS</b>，所以没有 Mod 时这几条线会是空的，不会拿估算值冒充实测。参考实现见仓库 <code>companion-mod/</code>。</div>
+          </div><div class="card">
+            <div class="card-head"><span>当前状态</span><span id="lv-verdict" class="tip inline"></span></div>
+            <div id="lv-meta" class="tip">尚未取样。</div>
+            <div id="lv-cards" class="lv-cards"></div>
+          </div>          <div class="card fill scroll">
+            <div class="card-head"><span>曲线</span><span id="lv-range" class="tip inline"></span></div>
+            <div class="card-head"><span>卡顿记录</span><span id="lv-lagsum" class="tip inline"></span></div>
+            <div id="lv-lag" class="list mini"></div>
           </div></div>
         </div></section>
 

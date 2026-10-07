@@ -216,6 +216,36 @@ contextBridge.exposeInMainWorld('api', {
   modkitPackManifest: (o) => ipcRenderer.invoke('modkit-pack-manifest', o),
   modkitPackExport: (o) => ipcRenderer.invoke('modkit-pack-export', o),
   modkitPackInspect: (zipPath) => ipcRenderer.invoke('modkit-pack-inspect', zipPath),
+
+  /* 世界：实体清理建议（V4 第二组尾巴 R11） */
+  entdocMeta: () => ipcRenderer.invoke('entdoc-meta'),
+  entdocScan: (o) => ipcRenderer.invoke('entdoc-scan', o),
+  entdocAnalyze: (o) => ipcRenderer.invoke('entdoc-analyze', o),
+  entdocReport: (analysis) => ipcRenderer.invoke('entdoc-report', analysis),
+
+  /* 离线合成规划（V4 第二组尾巴 R12） */
+  craftMeta: () => ipcRenderer.invoke('craft-meta'),
+  craftSearch: (q) => ipcRenderer.invoke('craft-search', q),
+  craftRecipes: (id) => ipcRenderer.invoke('craft-recipes', id),
+  craftPlan: (o) => ipcRenderer.invoke('craft-plan', o),
+  craftGaps: (o) => ipcRenderer.invoke('craft-gaps', o),
+  craftImport: (o) => ipcRenderer.invoke('craft-import', o),
+
+  /* 运行时指标（V4 第三组尾巴 R13） */
+  liveSpec: () => ipcRenderer.invoke('live-spec'),
+  liveSnapshot: (o) => ipcRenderer.invoke('live-snapshot', o),
+  liveParseLog: (text) => ipcRenderer.invoke('live-parse-log', text),
+
+  /* 多账户并行（V4 第五组 R14） */
+  acctNormalize: (store) => ipcRenderer.invoke('acct-normalize', store),
+  acctAdd: (o) => ipcRenderer.invoke('acct-add', o),
+  acctRemove: (o) => ipcRenderer.invoke('acct-remove', o),
+  acctSetActive: (o) => ipcRenderer.invoke('acct-set-active', o),
+  acctUpdate: (o) => ipcRenderer.invoke('acct-update', o),
+  acctSummary: (o) => ipcRenderer.invoke('acct-summary', o),
+  acctForInstance: (o) => ipcRenderer.invoke('acct-for-instance', o),
+  acctBind: (o) => ipcRenderer.invoke('acct-bind', o),
+
   // 注：退出码统一走 onLaunchState({state:'exited', code})，不再单独发 'game-exit'
   onLaunchState: (cb) => ipcRenderer.on('launch-state', (_e, s) => cb(s)),
   onInstallProgress: (cb) => ipcRenderer.on('install-progress', (_e, p) => cb(p)),

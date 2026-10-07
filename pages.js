@@ -2024,6 +2024,27 @@
     $('wdb-browse').onclick = wdbPick; $('wdb-index').onclick = wdbIndex;
     $('wdb-search').onclick = wdbDoSearch;
     $('wdb-q').oninput = () => { clearTimeout(wdbTimer); wdbTimer = setTimeout(wdbDoSearch, 300); };
+
+    /* 实体清理建议（R11） */
+    $('ed-browse').onclick = async () => { const d = await wapi.pickDirectory(); if (d) $('ed-dir').value = d; };
+    $('ed-run').onclick = edRun;
+    $('ed-scan').onclick = edScanDim;
+    $('ed-copy').onclick = edCopy;
+
+    /* 离线合成规划（R12） */
+    $('cp-plan').onclick = cpPlan;
+    $('cp-add').onclick = cpAddFromQuery;
+    $('cp-clear').onclick = () => { cp.targets = []; $('cp-sug').innerHTML = ''; cpRenderTargets(); };
+    $('cp-savedir-browse').onclick = async () => { const d = await wapi.pickDirectory(); if (d) $('cp-savedir').value = d; };
+    $('cp-q').oninput = () => { clearTimeout(cp.tTimer); cp.tTimer = setTimeout(cpSearchTarget, 250); };
+    $('cp-q').onkeydown = (e) => { if (e.key === 'Enter') cpAddFromQuery(); };
+    $('cp-have-q').oninput = () => { clearTimeout(cp.hTimer); cp.hTimer = setTimeout(cpSearchHave, 250); };
+    $('cp-have-q').onkeydown = (e) => { if (e.key === 'Enter') cpSearchHave(); };
+    $('cp-have-add').onclick = cpSearchHave;
+    cpRenderTargets();
+    cpRenderHave();
+    cpLoadMeta();
+
     if (wmpCells) setTimeout(wmpDraw, 50);
   }
 
@@ -2156,6 +2177,13 @@
     $('pt-savedir-browse').onclick = async () => { const d = await wapi.pickDirectory(); if (d) { $('pt-savedir').value = d; } };
     $('pt-copy').onclick = ptCopy;
     $('pr-load').onclick = prLoad;
+
+    /* 运行时监控（R13） */
+    $('lv-once').onclick = lvSnapshot;
+    $('lv-browse').onclick = async () => { const d = await wapi.pickDirectory(); if (d) $('lv-dir').value = d; };
+    $('lv-win').onchange = () => { if (lv.last) lvSnapshot(); };
+    $('lv-toggle').onclick = () => lvSetRunning(!lv.running);
+    $('lv-auto').onchange = () => { if ($('lv-auto').checked) lvSetRunning(true); };
   }
 
   /* ============ Mod 工具页（V4 第四组） ============ */
@@ -2636,6 +2664,673 @@
     ['mk-mc', 'mk-loader'].forEach((id) => { const el = $(id); if (el) el.onchange = () => { if (hasPicked()) mkPackCheck(); }; });
   }
 
+  /* ============================================================
+   * 实体清理建议（V4 第二组尾巴 · R11）
+   * ============================================================ */
+
+  const ed = { last: null };
+
+  /** 评级 → 文案 + 颜色类（沿用 perf 的 good/fair/poor/bad 口径） */
+  function edGrade(g) {
+    return {
+      good: { text: T('perf.grade.good', null, '良好'), cls: 'sev-good' },
+      fair: { text: T('perf.grade.fair', null, '一般'), cls: 'sev-warn' },
+      poor: { text: T('perf.grade.poor', null, '较差'), cls: 'sev-error' },
+      bad: { text: T('perf.grade.bad', null, '很差'), cls: 'sev-fatal' }
+    }[g] || { text: String(g || ''), cls: 'sev-info' };
+  }
+
+  /** 维度 id → 中文名 */
+  function edDimName(d) {
+    return {
+      overworld: T('ent.dim.ow', null, '主世界'),
+      nether: T('ent.dim.ne', null, '下界'),
+      end: T('ent.dim.en', null, '末地')
+    }[d] || String(d || '');
+  }
+
+  /** 严重度 → 颜色类（entitydoctor 只有 error/warn/info） */
+  function edSevCls(sev) {
+    return { error: 'sev-error', warn: 'sev-warn', info: 'sev-info' }[sev] || 'sev-info';
+  }
+
+  function edPickedDims() {
+    const dims = [];
+    if ($('ed-ow').checked) dims.push('overworld');
+    if ($('ed-ne').checked) dims.push('nether');
+    if ($('ed-en').checked) dims.push('end');
+    return dims;
+  }
+
+  async function edRun() {
+    const dir = $('ed-dir').value.trim();
+    if (!dir) { $('ed-summary').textContent = T('ent.needdir', null, '请先指定存档目录。'); return; }
+    const dims = edPickedDims();
+    if (!dims.length) { $('ed-summary').textContent = T('ent.needdim', null, '至少勾选一个维度。'); return; }
+    $('ed-summary').textContent = T('ent.running', null, '正在扫描 region 与 entities…大存档可能要几十秒。');
+    $('ed-score').textContent = '';
+    $('ed-cats').innerHTML = '';
+    $('ed-findings').innerHTML = '';
+    $('ed-cmds').innerHTML = '';
+    const res = await wapi.entdocAnalyze({ saveDir: dir, dims });
+    if (!res || res.error) {
+      $('ed-summary').textContent = T('world.err', null, '错误: ') + ((res && res.error) || '');
+      return;
+    }
+    ed.last = res;
+    edRender(res);
+  }
+
+  function edRender(res) {
+    const g = edGrade(res.grade);
+    const sum = res.summary || {};
+    $('ed-score').innerHTML = T('ent.score', null,
+      `健康分 <b>${res.score}</b>/100 · <span class="badge ${g.cls}">${g.text}</span>`);
+
+    // ⚠️ 中文必须先取成变量再拼模板：AST 覆盖率检查把「模板里出现嵌套中文」视为
+    //    该模板本身含中文文案，要求它整体是 T() 的实参 —— 变量化最省事也最清晰。
+    const L_CHUNK = T('ent.chunks', null, '区块');
+    const L_ENT = T('ent.ents', null, '实体');
+    const L_NODATA = T('ent.dimmiss', null, '（无数据）');
+    const dimLine = (res.dims || []).map((d) => {
+      const miss = d.missing ? L_NODATA : '';
+      return `${esc(edDimName(d.dim))} ${d.chunks} ${L_CHUNK} / ${d.total} ${L_ENT}${miss}`;
+    }).join(' · ');
+    $('ed-summary').innerHTML = T('ent.summary', null,
+      `实体总数 <b>${sum.total || 0}</b> · 加权成本 <b>${sum.cost || 0}</b> · 最挤的单区块 ${sum.maxCount || 0} 个<br>
+       有实体的区块 ${sum.nonEmpty || 0} / ${sum.chunks || 0}<br>${dimLine}
+       ${res.broken ? '<br>' + res.broken + ' 个区块读取失败（已跳过）' : ''}`);
+
+    // 按类别
+    const catBox = $('ed-cats');
+    catBox.innerHTML = '';
+    const cats = sum.byCategory || [];
+    if (cats.length) {
+      const head = document.createElement('div');
+      head.className = 'item';
+      head.innerHTML = T('ent.cathead', null,
+        '<div><div class="t">按类别</div><div class="s">成本是启发式估算，只用于排序</div></div>');
+      catBox.appendChild(head);
+      for (const c of cats) {
+        const d = document.createElement('div');
+        d.className = 'item';
+        d.innerHTML = T('ent.catrow', null,
+          `<div><div class="t">${esc(c.label)}</div><div class="s">${c.count} 个 · 成本 ${c.cost}</div></div>`);
+        catBox.appendChild(d);
+      }
+    }
+
+    // findings
+    const fBox = $('ed-findings');
+    fBox.innerHTML = '';
+    const finds = res.findings || [];
+    if (!finds.length) {
+      fBox.innerHTML = T('ent.nofind', null, '<div class="empty">没有发现异常 —— 实体分布很健康。</div>');
+    }
+    for (const f of finds) {
+      const cls = edSevCls(f.severity);
+      const d = document.createElement('div');
+      d.className = 'item ' + cls;
+      d.innerHTML = T('ent.findrow', null,
+        `<div><div class="t"><span class="badge ${cls}">${sevLabel(f.severity)}</span> ${esc(f.title || f.code || '')}</div>
+         <div class="s">${esc(f.detail || '')}</div>
+         ${f.advice ? '<div class="s">' + esc(f.advice) + '</div>' : ''}
+         <div class="s mono">${esc(f.code || '')}${f.where ? ' · (' + f.where.cx + ',' + f.where.cz + ')' : ''}</div></div>`);
+      fBox.appendChild(d);
+    }
+
+    // 清理指令
+    const cBox = $('ed-cmds');
+    cBox.innerHTML = '';
+    const cmds = res.commands || [];
+    if (cmds.length) {
+      const head = document.createElement('div');
+      head.className = 'item sev-warn';
+      head.innerHTML = T('ent.cmdhead', null,
+        '<div><div class="t">清理指令</div><div class="s">点一行复制。<b>请自行复核后再执行</b> —— 误删不可恢复。单人存档需开启作弊，服务器需相应权限。</div></div>');
+      cBox.appendChild(head);
+      for (const c of cmds) {
+        const d = document.createElement('div');
+        d.className = 'item cmd';
+        d.innerHTML = T('ent.cmdrow', null,
+          `<div><div class="t">${esc(c.label)}</div><div class="s mono">${esc(c.cmd)}</div></div>`);
+        d.onclick = async () => {
+          await wapi.copyText(c.cmd);
+          S().setStatus(T('ent.copied', null, '已复制清理指令'), '');
+        };
+        cBox.appendChild(d);
+      }
+    }
+  }
+
+  async function edScanDim() {
+    const dir = $('ed-dir').value.trim();
+    if (!dir) { $('ed-scan-info').textContent = T('ent.needdir', null, '请先指定存档目录。'); return; }
+    const dim = $('ed-dim').value;
+    $('ed-scan-info').textContent = T('ent.scanning', null, '正在扫描该维度…');
+    $('ed-chunks').innerHTML = '';
+    const res = await wapi.entdocScan({ saveDir: dir, dim });
+    if (!res || res.error) {
+      $('ed-scan-info').textContent = T('world.err', null, '错误: ') + ((res && res.error) || '');
+      return;
+    }
+    $('ed-scan-info').innerHTML = T('ent.scaninfo', null,
+      `${edDimName(res.dim)}：${res.files} 个文件 · ${res.chunkCount} 个区块（其中 ${res.emptyChunks} 个没有实体）· 实体 ${res.total}
+       ${res.broken ? ' · ' + res.broken + ' 个读取失败' : ''}
+       ${res.missing ? ' · <b>该维度没有找到数据</b>' : ''}`);
+    const box = $('ed-chunks');
+    for (const c of (res.top || []).slice(0, 40)) {
+      if (!c.count) break;
+      const types = (c.types || []);
+      const top = Object.keys(types).slice(0, 3)
+        .map((id) => id + '×' + types[id]).join(' ');
+      const d = document.createElement('div');
+      d.className = 'item';
+      d.innerHTML = T('ent.chunkrow', null,
+        `<div><div class="t">(${c.cx},${c.cz})　${c.count} 个实体　成本 ${c.cost}</div><div class="s">${esc(top)}</div></div>`);
+      box.appendChild(d);
+    }
+  }
+
+  async function edCopy() {
+    if (!ed.last) { S().setStatus(T('ent.noreport', null, '还没有诊断结果。'), ''); return; }
+    const r = await wapi.entdocReport(ed.last);
+    if (!r || !r.ok) { S().setStatus(T('ent.reportfail', null, '生成报告失败。'), ''); return; }
+    await wapi.copyText(r.text);
+    S().setStatus(T('ent.reportcopied', null, '已复制完整报告到剪贴板'), '');
+  }
+
+  /* ============================================================
+   * 离线合成规划（V4 第二组尾巴 · R12）
+   * ============================================================ */
+
+  const cp = { targets: [], have: {}, last: null, tTimer: null, hTimer: null };
+
+  /** 合成方式 → 中文（via 只有 craft / smelt / smith） */
+  function cpVia(v) {
+    return {
+      craft: T('craft.via.craft', null, '合成'),
+      smelt: T('craft.via.smelt', null, '熔炼'),
+      smith: T('craft.via.smith', null, '锻造'),
+      uncraft: T('craft.via.uncraft', null, '拆解')
+    }[v] || String(v || '');
+  }
+
+  function cpAddTarget(id, n) {
+    const key = String(id || '').replace(/^minecraft:/, '');
+    if (!key) return;
+    const qty = Math.max(1, Math.floor(Number(n) || 1));
+    const found = cp.targets.find((t) => t.id === key);
+    if (found) found.n += qty; else cp.targets.push({ id: key, n: qty });
+    $('cp-sug').innerHTML = '';
+    cpRenderTargets();
+  }
+
+  function cpRenderTargets() {
+    const box = $('cp-targets');
+    box.innerHTML = '';
+    if (!cp.targets.length) {
+      box.innerHTML = T('craft.notarget', null, '<div class="empty">还没有目标。上面搜一个物品加进来。</div>');
+      return;
+    }
+    for (const t of cp.targets) {
+      const d = document.createElement('div');
+      d.className = 'item';
+      const info = document.createElement('div');
+      info.innerHTML = T('craft.targetrow', null,
+        `<div><div class="t">${esc(cpName(t.id))}</div><div class="s">${esc(t.id)} · ×${t.n}</div></div>`);
+      const ops = document.createElement('div');
+      ops.className = 'row';
+      const del = document.createElement('button');
+      del.className = 'ghost-btn danger';
+      del.textContent = T('craft.remove', null, '移除');
+      del.onclick = () => { cp.targets = cp.targets.filter((x) => x !== t); cpRenderTargets(); };
+      ops.appendChild(del);
+      d.appendChild(info);
+      d.appendChild(ops);
+      box.appendChild(d);
+    }
+  }
+
+  /** 物品 id → 中文名（拿不到就返回 id 本身；规划结果里有 zh 就直接用） */
+  function cpName(id) {
+    const key = String(id || '').replace(/^minecraft:/, '');
+    if (cp.last && cp.last.names && cp.last.names[key]) return cp.last.names[key];
+    return key;
+  }
+
+  function cpHooksSet() {
+    /* 搜索结果 */
+    const sug = $('cp-sug');
+    sug.innerHTML = '';
+    return sug;
+  }
+
+  async function cpSearchTarget() {
+    const q = $('cp-q').value.trim();
+    const sug = cpHooksSet();
+    if (q.length < 1) return;
+    const res = await wapi.craftSearch(q);
+    const items = (res && res.items) || [];
+    if (!items.length) {
+      sug.innerHTML = T('craft.nohit', null, '<div class="empty">没搜到。试试物品 id（英文）或换个词。</div>');
+      return;
+    }
+    for (const it of items.slice(0, 12)) {
+      const d = document.createElement('div');
+      d.className = 'item sug';
+      d.innerHTML = T('craft.sugrow', null,
+        `<div><div class="t">${esc(it.zh)}</div><div class="s">${esc(it.id)} · ${esc(it.source)}${it.ways ? ' · ' + it.ways + ' 种做法' : ''}</div></div>`);
+      d.onclick = () => { cpAddTarget(it.id, $('cp-n').value); $('cp-q').value = ''; };
+      sug.appendChild(d);
+    }
+  }
+
+  /** 「添加」按钮 / 回车：取搜索结果里最贴近的那个加进目标 */
+  async function cpAddFromQuery() {
+    const q = $('cp-q').value.trim();
+    if (!q) return;
+    const res = await wapi.craftSearch(q);
+    const items = (res && res.items) || [];
+    if (!items.length) {
+      S().setStatus(T('craft.nohit2', null, '没搜到这个物品 —— 试试用英文 id。'), '');
+      return;
+    }
+    cpAddTarget(items[0].id, $('cp-n').value);
+    $('cp-q').value = '';
+  }
+
+  async function cpSearchHave() {
+    const q = $('cp-have-q').value.trim();
+    const sug = $('cp-havesug');
+    sug.innerHTML = '';
+    if (q.length < 1) return;
+    const res = await wapi.craftSearch(q);
+    for (const it of ((res && res.items) || []).slice(0, 8)) {
+      const d = document.createElement('div');
+      d.className = 'item sug';
+      d.innerHTML = T('craft.sugrow', null,
+        `<div><div class="t">${esc(it.zh)}</div><div class="s">${esc(it.id)} · ${esc(it.source)}${it.ways ? ' · ' + it.ways + ' 种做法' : ''}</div></div>`);
+      d.onclick = () => {
+        const n = Math.max(0, Math.floor(Number($('cp-have-n').value) || 0));
+        cp.have[it.id] = (cp.have[it.id] || 0) + n;
+        cp.names = cp.names || {};
+        cp.names[it.id] = it.zh;
+        $('cp-have-q').value = '';
+        sug.innerHTML = '';
+        cpRenderHave();
+      };
+      sug.appendChild(d);
+    }
+  }
+
+  function cpRenderHave() {
+    const box = $('cp-have');
+    box.innerHTML = '';
+    const keys = Object.keys(cp.have);
+    if (!keys.length) {
+      box.innerHTML = T('craft.nohave', null, '<div class="empty">没有登记库存 —— 那就算「全都要新采」。</div>');
+      return;
+    }
+    for (const id of keys) {
+      const d = document.createElement('div');
+      d.className = 'item';
+      const name = (cp.names && cp.names[id]) || id;
+      d.innerHTML = T('craft.haverow', null,
+        `<div><div class="t">${esc(name)}</div><div class="s">${esc(id)} · 已有 ${cp.have[id]}</div></div>`);
+      const del = document.createElement('button');
+      del.className = 'ghost-btn danger';
+      del.textContent = T('craft.remove', null, '移除');
+      del.onclick = () => { delete cp.have[id]; cpRenderHave(); };
+      d.appendChild(del);
+      box.appendChild(d);
+    }
+  }
+
+  /** 配方库概况填到页头上（顺带证明"内置表真的加载了"） */
+  async function cpLoadMeta() {
+    const el = $('cp-meta');
+    if (!el) return;
+    const res = await wapi.craftMeta();
+    if (!res || !res.ok) { el.textContent = ''; return; }
+    const st = res.stats || {};
+    el.textContent = T('craft.meta', { r: st.recipes || 0, o: st.outputs || 0 },
+      `内置 ${st.recipes || 0} 条配方 / ${st.outputs || 0} 种产物`);
+  }
+
+  async function cpPlan() {
+    if (!cp.targets.length) { $('cp-result').textContent = T('craft.notarget', null, '还没有目标。上面搜一个物品加进来。'); return; }
+    $('cp-result').textContent = T('craft.planning', null, '正在展开配方…');
+    $('cp-gaps').innerHTML = '';
+    $('cp-base').innerHTML = '';
+    $('cp-order').innerHTML = '';
+    $('cp-steps').innerHTML = '';
+    const scanSaveDir = $('cp-usesave').checked ? $('cp-savedir').value.trim() : '';
+    const res = await wapi.craftPlan({
+      targets: cp.targets,
+      have: cp.have,
+      allowUncraft: $('cp-uncraft').checked,
+      scanSaveDir: scanSaveDir || undefined
+    });
+    if (!res || res.error) {
+      $('cp-result').textContent = T('world.err', null, '错误: ') + ((res && res.error) || '');
+      return;
+    }
+    cp.last = res.plan;
+    // 把中文名缓存下来，供 cpName 复用
+    cp.names = cp.names || {};
+    for (const b of (res.plan.base || [])) cp.names[b.id] = b.zh || b.id;
+    for (const t of (res.plan.targets || [])) cp.names[t.id] = t.zh || t.id;
+    cpRender(res);
+  }
+
+  function cpRender(res) {
+    const p = res.plan || {};
+    const g = res.gaps || {};
+    const invFrom = {
+      manual: T('craft.inv.manual', null, '按你填的库存算'),
+      save: T('craft.inv.save', null, '按存档里的容器统计'),
+      'manual+save': T('craft.inv.both', null, '按"你填的 + 存档里的"合并算'),
+      none: T('craft.inv.none', null, '没有登记库存，按全新增算')
+    }[res.inventoryFrom] || '';
+
+    $('cp-sum').innerHTML = T('craft.sum', null,
+      `要做 ${p.craftable || 0} 种东西 · 基础材料 ${p.totals ? p.totals.kinds : 0} 种 / ${p.totals ? p.totals.items : 0} 个`);
+    $('cp-result').innerHTML = T('craft.result', null,
+      `目标 ${(p.targets || []).length} 项 · 需合成 <b>${p.craftable || 0}</b> 种<br>
+       基础材料缺口 <b>${g.missingKinds || 0}</b> 种 / <b>${g.missingTotal || 0}</b> 个　<span class="tip inline">${esc(invFrom)}</span>
+       ${g.allEnough ? '<br><b>库存已经够了，什么都不用采。</b>' : ''}
+       ${(p.unresolved || []).length ? '<br>⚠ ' + p.unresolved.length + ' 个标签/配方无法解析（已跳过）' : ''}
+       ${(p.unknown || []).length ? '<br>⚠ ' + p.unknown.length + ' 个物品不在内置字典里（多半是模组物品），仍按基础材料列出' : ''}`);
+
+    /* 缺口：目标本身够不够 */
+    const gBox = $('cp-gaps');
+    gBox.innerHTML = '';
+    for (const it of (g.items || [])) {
+      const d = document.createElement('div');
+      d.className = 'item' + (it.enough ? '' : ' sev-warn');
+      d.innerHTML = T('craft.gaprow', null,
+        `<div><div class="t">${esc(it.zh || it.id)}</div><div class="s">需要 ${it.need} · 已有 ${it.have} · ${it.enough ? '够了' : '还差 ' + it.missing}</div></div>`);
+      gBox.appendChild(d);
+    }
+
+    /* 基础材料 */
+    const bBox = $('cp-base');
+    bBox.innerHTML = '';
+    const base = p.base || [];
+    if (base.length) {
+      const head = document.createElement('div');
+      head.className = 'item sev-info';
+      head.innerHTML = T('craft.basehead', null,
+        '<div><div class="t">基础材料（要采集/合成到手的）</div><div class="s">按数量降序</div></div>');
+      bBox.appendChild(head);
+    }
+    for (const b of base) {
+      const d = document.createElement('div');
+      d.className = 'item';
+      d.innerHTML = T('craft.baserow', null,
+        `<div><div class="t">${esc(b.zh || b.id)}　×${b.missing}</div><div class="s">${esc(b.sourceLabel)} · 需要 ${b.need} · 已有 ${b.have} · ${esc(b.id)}</div></div>`);
+      bBox.appendChild(d);
+    }
+
+    /* 采集顺序 */
+    const oBox = $('cp-order');
+    oBox.innerHTML = '';
+    const order = res.order || [];
+    if (order.length) {
+      const head = document.createElement('div');
+      head.className = 'item sev-info';
+      head.innerHTML = T('craft.orderhead', null,
+        '<div><div class="t">建议顺序</div><div class="s">先把原料拿到手，熔炼放最后（省炉子来回）</div></div>');
+      oBox.appendChild(head);
+    }
+    for (let i = 0; i < order.length; i++) {
+      const gp = order[i];
+      const d = document.createElement('div');
+      d.className = 'item';
+      const names = (gp.items || []).slice(0, 8).map((x) => esc(x.zh || x.id) + '×' + x.missing).join('　');
+      d.innerHTML = T('craft.orderrow', null,
+        `<div><div class="t">${i + 1}. ${esc(gp.label)}　共 ${gp.total}</div><div class="s">${names}</div></div>`);
+      oBox.appendChild(d);
+    }
+
+    /* 合成步骤 */
+    const sBox = $('cp-steps');
+    sBox.innerHTML = '';
+    const steps = p.steps || [];
+    if (steps.length) {
+      const head = document.createElement('div');
+      head.className = 'item sev-info';
+      head.innerHTML = T('craft.stephead', null,
+        '<div><div class="t">合成步骤</div><div class="s">按「先熔炼再合成」排</div></div>');
+      sBox.appendChild(head);
+    }
+    for (const st of steps) {
+      const ing = (st.from || []).map((f) => esc(f.zh || f.key) + '×' + f.n).join(' + ');
+      const d = document.createElement('div');
+      d.className = 'item';
+      d.innerHTML = T('craft.steprow', null,
+        `<div><div class="t">${esc(st.zh || st.id)} ×${st.out}</div>
+          <div class="s">${esc(cpVia(st.via))} ${st.times} 次　←　${ing}</div></div>`);
+      sBox.appendChild(d);
+    }
+  }
+
+  /* ============================================================
+   * 运行时监控（V4 第三组尾巴 · R13）
+   * ============================================================ */
+
+  const lv = { timer: null, last: null, running: false };
+
+  /** 指标定义：div 用于把字节换算成 MB */
+  function lvMetrics() {
+    return [
+      { k: 'fps', label: T('live.m.fps', null, 'FPS'), unit: '', color: 'var(--accent)', div: 1 },
+      { k: 'tps', label: T('live.m.tps', null, 'TPS'), unit: '', color: 'var(--good)', div: 1 },
+      { k: 'mspt', label: T('live.m.mspt', null, '每 tick 毫秒'), unit: ' ms', color: 'var(--accent2)', div: 1 },
+      { k: 'mem', label: T('live.m.mem', null, '堆内存'), unit: ' MB', color: 'var(--accent2)', div: 1048576 },
+      { k: 'entities', label: T('live.m.entities', null, '实体数'), unit: '', color: 'var(--accent)', div: 1 },
+      { k: 'chunks', label: T('live.m.chunks', null, '已载区块'), unit: '', color: 'var(--accent)', div: 1 }
+    ];
+  }
+
+  /** 迷你折线 SVG（不引第三方图表库，悬浮窗要的就是这种轻量曲线） */
+  function lvSpark(pts, div, color) {
+    if (!pts || pts.length < 2) return '';
+    const scale = div || 1;
+    let min = Infinity, max = -Infinity;
+    for (const p of pts) {
+      const v = p.v / scale;
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    if (!(max > min)) max = min + 1;
+    const W = 100, H = 30;
+    const step = W / (pts.length - 1);
+    const yy = (v) => H - ((v - min) / (max - min)) * (H - 3) - 1.5;
+    let d = '';
+    for (let i = 0; i < pts.length; i++) {
+      d += (i ? 'L' : 'M') + (i * step).toFixed(2) + ',' + yy(pts[i].v / scale).toFixed(2);
+    }
+    return `<svg class="lv-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      <path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+  }
+
+  function lvFmt(v, unit, div) {
+    if (v === null || v === undefined || !Number.isFinite(v)) return '—';
+    const x = v / (div || 1);
+    const s = Math.abs(x) >= 100 ? Math.round(x) : Math.round(x * 10) / 10;
+    return s + (unit || '');
+  }
+
+  async function lvSnapshot() {
+    const dir = $('lv-dir').value.trim();
+    if (!dir) { $('lv-meta').textContent = T('live.needdir', null, '请先指定游戏目录。'); return; }
+    const res = await wapi.liveSnapshot({ gameDir: dir, winMs: Number($('lv-win').value) || 0, maxPoints: 200 });
+    if (!res || res.error) {
+      $('lv-meta').textContent = T('world.err', null, '错误: ') + ((res && res.error) || '');
+      return;
+    }
+    lv.last = res;
+    lvRender(res);
+  }
+
+  function lvRender(res) {
+    const s = res.sources || {};
+    const sum = res.summary || {};
+    const v = res.verdict || {};
+    const vCls = { error: 'sev-error', warn: 'sev-warn', info: 'sev-info', good: 'sev-good' }[v.level] || 'sev-info';
+    $('lv-verdict').innerHTML = T('live.verdict', null, `<span class="badge ${vCls}">${esc(v.title || '')}</span>`);
+
+    const srcMod = res.hasMod
+      ? T('live.srcmod', { n: s.sampleCount || 0 }, `伴随 Mod：${s.sampleCount || 0} 个样本（${esc(s.modPath || '')}）`)
+      : T('live.srcnomod', null, '伴随 Mod：<b>未检测到</b> —— 只有日志级指标，没有 FPS / TPS / 内存曲线');
+    const srcLog = s.logPath
+      ? T('live.srclog', null, `日志：${esc(s.logPath)}（读 ${Math.round((s.logBytes || 0) / 1024)} KB）`)
+      : T('live.srclog.none', null, '日志：没有找到 logs/latest.log');
+    const lastT = res.last && res.last.t ? fmtTime(res.last.t) : '—';
+    const dim = res.last && res.last.dim ? res.last.dim : '—';
+    $('lv-meta').innerHTML = T('live.meta', null,
+      `${srcMod}<br>${srcLog}<br>最近一次采样：${lastT} · 维度 ${esc(dim)}
+       ${s.modBad ? ' · ' + s.modBad + ' 行 JSON 解析失败（多半是正在写入的半截行）' : ''}`);
+    $('lv-range').textContent = v.detail || '';
+    $('lv-verdict').title = v.detail || '';
+
+    // 指标卡
+    const cards = $('lv-cards');
+    cards.innerHTML = '';
+    for (const m of lvMetrics()) {
+      const st = sum[m.k] || {};
+      const d = document.createElement('div');
+      d.className = 'lv-card';
+      d.innerHTML = T('live.card', null,
+        `<div class="lv-card-head"><span>${m.label}</span>
+           <span class="tip inline">${st.count ? 'n=' + st.count : ''}</span></div>
+         <div class="lv-card-val">${lvFmt(st.last, m.unit, m.div)}</div>
+         <div class="lv-spark-wrap">${lvSpark((res.series && res.series[m.k]) || [], m.div, m.color)}</div>
+         <div class="lv-card-foot">${T('live.cardfoot', null, '均')} ${lvFmt(st.avg, m.unit, m.div)}
+           · ${T('live.cardfoot2', null, '峰')} ${lvFmt(st.max, m.unit, m.div)}
+           · P95 ${lvFmt(st.p95, m.unit, m.div)}
+           ${st.min === null || st.min === undefined ? ' · <b>' + T('live.novalue', null, '无数据') + '</b>' : ''}</div>`);
+      cards.appendChild(d);
+    }
+
+    // 卡顿记录
+    const lh = res.lagHealth || {};
+    $('lv-lagsum').innerHTML = T('live.lagsum', null,
+      `落后 <b>${lh.count || 0}</b> 次 · 最长 <b>${lh.worstMs || 0}</b> ms · 平均 ${lh.avgMs || 0} ms
+       ${lh.eventsPerHour ? ' · 约 ' + Math.round(lh.eventsPerHour) + ' 次/小时' : ''}`);
+    const lagBox = $('lv-lag');
+    lagBox.innerHTML = '';
+    const events = (res.lag && res.lag.events) || [];
+    if (!events.length) {
+      lagBox.innerHTML = T('live.nolag', null, '<div class="empty">日志里没有「Can\'t keep up!」记录 —— 这是个好消息。</div>');
+    }
+    for (let i = events.length - 1; i >= 0 && i > events.length - 41; i--) {
+      const e = events[i];
+      const d = document.createElement('div');
+      d.className = 'item';
+      d.innerHTML = T('live.lagrow', null,
+        `<div><div class="t">落后 ${e.ms} ms${e.ticks === null || e.ticks === undefined ? '' : ' / ' + e.ticks + ' tick'}</div><div class="s">${e.t ? fmtTime(e.t) : '日志未带时间戳'}</div></div>`);
+      lagBox.appendChild(d);
+    }
+    const gc = res.lag && res.lag.gcLast;
+    if (gc) {
+      const d = document.createElement('div');
+      d.className = 'item sev-info';
+      d.innerHTML = T('live.gcrow', null,
+        `<div><div class="t">GC：已用 ${Math.round(gc.used / 1048576)} MB / 上限 ${Math.round(gc.total / 1048576)} MB</div><div class="s">来自日志里的 GC 行（需要在启动参数里开 -Xlog:gc）</div></div>`);
+      lagBox.appendChild(d);
+    }
+  }
+
+  function lvSetRunning(on) {
+    lv.running = on;
+    $('lv-toggle').textContent = on
+      ? T('live.stop', null, '停止监控')
+      : T('live.start', null, '开始监控');
+    if (lv.timer) { clearInterval(lv.timer); lv.timer = null; }
+    if (on) lv.timer = setInterval(() => { lvSnapshot(); }, 3000);
+  }
+
+  /* ============================================================
+   * 实例账户绑定（V4 第五组 · R14）
+   * ============================================================ */
+
+  /** 从渲染层的账户状态拼出账户簿（与主进程 acct-* 的入参格式一致） */
+  function abStore() {
+    const st = S();
+    const list = st.accounts || (st.account ? [st.account] : []);
+    return { accounts: list, activeId: st.account ? st.account.uuid : null };
+  }
+
+  async function refreshBindings() {
+    const box = $('ab-bind');
+    if (!box) return;
+    const reBtn = $('ab-refresh');
+    if (reBtn) reBtn.onclick = refreshBindings;
+    const res = await wapi.acctSummary({ store: abStore() });
+    if (!res || res.error) {
+      $('ab-summary').textContent = T('world.err', null, '错误: ') + ((res && res.error) || '');
+      return;
+    }
+    const s = res.summary || {};
+    const byKind = s.byKind || {};
+    $('ab-summary').innerHTML = T('acct.summary', null,
+      `共 <b>${s.total || 0}</b> 个账户（离线 ${byKind.offline || 0} · 外置 ${byKind.yggdrasil || 0} · 微软 ${byKind.microsoft || 0}）
+       · 活动账户 <b>${esc(s.activeName || '无')}</b><br>
+       实例 ${(res.instances || []).length} 个：已绑定 ${s.bound || 0} · 跟随活动 ${s.unbound || 0}
+       ${s.stale ? ' · <b>' + s.stale + ' 个绑定已失效</b>' : ''}`);
+
+    const staleBox = $('ab-stale');
+    staleBox.innerHTML = '';
+    for (const it of (res.stale || [])) {
+      const d = document.createElement('div');
+      d.className = 'item sev-warn';
+      d.innerHTML = T('acct.stalerow', null,
+        `<div><div class="t">${esc(it.name)} 绑定的账户已不存在</div><div class="s">启动时会回退到活动账户 · 绑定值 ${esc(it.accountId)}</div></div>`);
+      staleBox.appendChild(d);
+    }
+
+    const accounts = (abStore().accounts || []);
+    box.innerHTML = '';
+    for (const inst of (res.instances || [])) {
+      const row = document.createElement('div');
+      row.className = 'item';
+      const head = document.createElement('div');
+      head.innerHTML = T('acct.instrow', null,
+        `<div><div class="t">${esc(inst.name || inst.id)}</div><div class="s">${esc(inst.version || '')}${inst.loader ? ' · ' + esc(inst.loader) : ''}</div></div>`);
+      const sel = document.createElement('select');
+      sel.className = 'sel';
+      const optAuto = document.createElement('option');
+      optAuto.value = '';
+      optAuto.textContent = T('acct.followactive', null, '跟随活动账户');
+      sel.appendChild(optAuto);
+      for (const a of accounts) {
+        const o = document.createElement('option');
+        o.value = a.uuid;
+        o.textContent = a.name || a.uuid;
+        sel.appendChild(o);
+      }
+      sel.value = inst.accountId || '';
+      sel.onchange = async () => {
+        const r = await wapi.acctBind({ id: inst.id, accountId: sel.value || null });
+        if (r && r.ok) {
+          S().setStatus(T('acct.bound', null, '已更新实例绑定'), '');
+          refreshBindings();
+        } else {
+          S().setStatus(T('acct.bindfail', null, '绑定失败：') + ((r && r.error) || ''), 'err');
+        }
+      };
+      row.appendChild(head);
+      row.appendChild(sel);
+      box.appendChild(row);
+    }
+    if (!(res.instances || []).length) {
+      box.innerHTML = T('acct.noinst', null, '<div class="empty">还没有实例。先去「实例」页建一个。</div>');
+    }
+  }
+
   window.Pages = {
     refreshInstalled, versionOp, downloadOfficial, loadLoaderVersions, installLoader,
     refreshRes, refreshSaves, refreshShots, organizeShots, refreshLogs, resDir, fmtSize, fmtTime, esc,
@@ -2650,6 +3345,10 @@
     /* 性能页（V4 第三组） */
     initPerf,
     /* Mod 工具页（V4 第四组） */
-    initModkit
+    initModkit,
+    /* 实例账户绑定（V4 第五组 R14）
+     *   实体清理（R11）与合成规划（R12）挂在世界页、运行时监控（R13）挂在性能页，
+     *   都由各自的 initWorld / initPerf 顺带绑定，不必单独导出。 */
+    refreshBindings
   };
 })();

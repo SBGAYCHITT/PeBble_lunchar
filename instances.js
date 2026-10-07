@@ -162,8 +162,9 @@ function ensureDefault({ root, mcDir, version }) {
  * @param {string}  [o.instancesRoot] gameDir 的父目录
  * @param {string[]}[o.copyFrom]   从这些实例（或任意 gameDir）复制内容
  * @param {string[]}[o.items]      COPYABLE 的 key 子集
+ * @param {string}  [o.accountId]  绑定的账户 uuid（为空 = 跟随活动账户）
  */
-function create({ root, name, version, loader, gameDir, instancesRoot, copyFrom, items }) {
+function create({ root, name, version, loader, gameDir, instancesRoot, copyFrom, items, accountId }) {
   if (!name || !String(name).trim()) throw new Error('实例名不能为空');
   const data = readStore(root);
   const trimName = String(name).trim();
@@ -183,6 +184,9 @@ function create({ root, name, version, loader, gameDir, instancesRoot, copyFrom,
     mem: 0,
     jvmArgs: '',
     winW: 0, winH: 0, fullscreen: false,
+    // 绑定的默认账户（null = 跟随当前活动账户）。放在实例上而不是账户库里，
+    // 这样删实例时绑定自动消失，不会留下指向不存在实例的孤儿绑定。
+    accountId: accountId || null,
     createdAt: Date.now(),
     lastPlayed: Date.now()
   };
@@ -230,7 +234,7 @@ function update({ root, id, patch }) {
   const data = readStore(root);
   const inst = data.instances.find((i) => i.id === id);
   if (!inst) throw new Error('实例不存在: ' + id);
-  const ALLOWED = ['name', 'note', 'version', 'loader', 'javaPath', 'mem', 'jvmArgs', 'winW', 'winH', 'fullscreen', 'gameDir'];
+  const ALLOWED = ['name', 'note', 'version', 'loader', 'javaPath', 'mem', 'jvmArgs', 'winW', 'winH', 'fullscreen', 'gameDir', 'accountId'];
   for (const k of ALLOWED) {
     if (Object.prototype.hasOwnProperty.call(patch || {}, k)) inst[k] = patch[k];
   }

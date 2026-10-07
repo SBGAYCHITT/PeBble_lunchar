@@ -634,3 +634,44 @@ body.theme-light .lab-tr { background: rgba(255, 255, 255, .42); }
 .badge.sev-warn  { background: rgba(232, 163, 74, .2); color: #e8a34a; }
 .badge.sev-info  { background: rgba(108, 140, 255, .2); color: var(--accent); }
 .dim { color: var(--text-dim); font-size: 10.5px; }
+
+
+/* ============================================================
+ * V4 第二组尾巴 / 第三组尾巴 / 第五组：新增样式
+ *   - 实体清理（R11）+ 合成规划（R12）：复用 .item / .badge / .sev-*
+ *   - 运行时监控（R13）：指标卡 + 迷你折线
+ *   - 实例账户绑定（R14）：复用 .item + .sel
+ * ============================================================ */
+
+/* 评级「良好」用的绿色徽标（perf 那套只有 4 档语义色，缺 good） */
+.badge.sev-good { background: rgba(74, 222, 128, .18); color: var(--good); }
+.sev-good { border-left: 3px solid var(--good); }
+
+/* 紧凑列表：搜索结果 / 库存 / 卡顿记录这类行高要矮一点 */
+.list.mini { gap: 5px; }
+.list.mini .item { padding: 6px 10px; border-radius: 9px; }
+.list.mini .item .t { font-size: 12px; }
+.list.mini .item .s { font-size: 10.5px; }
+
+/* 等宽小字：清理指令 / 命中码这类要能整行看清 */
+.item .mono, .mono {
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 10.5px; word-break: break-all; line-height: 1.6; opacity: .85;
+}
+.item.cmd { border-left: 3px solid #e8a34a; }
+.item.cmd .s.mono { user-select: text; }
+
+/* ---------- 运行时监控：指标卡 ---------- */
+.lv-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(178px, 1fr)); gap: 10px; margin-top: 10px; }
+.lv-card {
+  border: 1px solid var(--border); border-radius: 13px; padding: 9px 11px 7px;
+  background: var(--glass); display: flex; flex-direction: column; gap: 3px; min-width: 0;
+}
+.lv-card-head { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--text-dim); }
+.lv-card-val { font-size: 21px; font-weight: 700; letter-spacing: -.4px; line-height: 1.15; }
+.lv-card-foot { font-size: 10px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lv-spark-wrap { height: 32px; margin: 1px 0; }
+.lv-spark { width: 100%; height: 32px; display: block; }
+
+/* 页签变多了（世界页 6 个、性能页 4 个）—— 允许换行，窄窗口下不会挤成一团 */
+#world-tabs, #perf-tabs { flex-wrap: wrap; }

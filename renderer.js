@@ -586,7 +586,7 @@
     logs: () => P().refreshLogs(),
     settings: async () => { syncSettingsUI(); await loadOptionsIntoUI(); },
     lab: async () => { await P().initLab(); P().refreshLabHistory(); },
-    account: async () => { await P().refreshAccounts(); P().refreshMulti(); },
+    account: async () => { await P().refreshAccounts(); P().refreshMulti(); P().refreshBindings(); },
     about: async () => {
       const info = await window.api.appInfo();
       $('about-info').textContent = T('about.version', { version: info.version, electron: info.electron, node: info.node });

@@ -4,8 +4,16 @@ const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
 
 const ROOT = process.cwd();
-const SRC = path.join(ROOT, 'dist/win-unpacked');
-const OUT = path.join(ROOT, 'dist/Pebble-Lunchar.exe');
+/* 打包源目录与产物路径可用环境变量覆盖（**默认行为完全不变**）。
+ * 用途：electron-builder 的 emptyDir 会被沙箱的批量删除守卫拦下
+ *       （`dist/win-unpacked` 超过 50 项时直接抛 SAFE_DELETE_BULK_REJECTED），
+ *       于是可以改成「输出到全新目录」重建，再指过来打包，全程不必删任何东西：
+ *         node node_modules/electron-builder/out/cli/cli.js --win --x64 --dir \
+ *              --config.directories.output=dist2
+ *         PL_SRC=dist2/win-unpacked node make-exe.js
+ */
+const SRC = path.resolve(ROOT, process.env.PL_SRC || 'dist/win-unpacked');
+const OUT = path.resolve(ROOT, process.env.PL_OUT || 'dist/Pebble-Lunchar.exe');
 const NSI = path.join(ROOT, 'tools/pl.nsi');
 const MAKENSIS = path.join(ROOT, 'tools/makensis.exe');
 

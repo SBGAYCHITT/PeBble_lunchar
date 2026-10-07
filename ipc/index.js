@@ -43,7 +43,11 @@ const DOMAINS = [
   './system',
   './world',
   './perf',
-  './modkit'
+  './modkit',
+  './entitydoctor',
+  './craftplanner',
+  './livemetrics',
+  './accountbook'
 ];
 
 /**
