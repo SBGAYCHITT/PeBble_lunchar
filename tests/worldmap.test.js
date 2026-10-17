@@ -78,6 +78,72 @@ t('analyzeChunk：垃圾输入不崩', () => {
   assert.deepStrictEqual(wm.analyzeChunk(42), { topName: null, topY: null, biome: null });
 });
 
+/* ---------- 回归：1.18+ 存档（这两个 bug 曾让地图整片空掉且不报错） ----------
+   ① 只认 `Level.Sections`，而 1.18 把小写 `sections` 提到了顶层；
+   ② 只实现交叉打包，而 1.16 起改成不跨 long —— 5 位宽下解出来的是**错位的合法方块**。
+   这两条都在 1.18+ 的真实存档上触发，而且不报任何错，所以必须有用例钉住。 */
+
+/** 填充打包（1.16+）：索引不跨 long */
+function packPadded(seq, bits, total) {
+  const per = Math.floor(64 / bits);
+  const out = new Array(Math.ceil(total / per)).fill(0n);
+  for (let i = 0; i < total; i++) {
+    out[Math.floor(i / per)] |= BigInt(seq[i]) << BigInt((i % per) * bits);
+  }
+  return out;
+}
+/** 交叉打包（≤1.15.2）：索引可跨 long */
+const M64T = (1n << 64n) - 1n;
+function packCrossing(seq, bits, total) {
+  const out = new Array(Math.ceil(total * bits / 64)).fill(0n);
+  for (let i = 0; i < total; i++) {
+    const off0 = i * bits;
+    const li = Math.floor(off0 / 64);
+    const off = off0 % 64;
+    const v = BigInt(seq[i]);
+    out[li] |= (v << BigInt(off)) & M64T;
+    if (off + bits > 64) out[li + 1] |= v >> BigInt(64 - off);
+  }
+  return out;
+}
+
+/** 造一个 1.18 风格的区块：顶层小写 sections、20 项调色板（5 位宽）、整层同一方块 */
+function chunk18Buf(packing, topIdx) {
+  const palette = [{ Name: 'minecraft:air' }];
+  for (let i = 1; i < 20; i++) palette.push({ Name: 'minecraft:stone' });
+  palette[topIdx] = { Name: 'minecraft:grass_block' };
+  const seq = new Array(4096).fill(topIdx);
+  // 留一格非顶层方块，证明不是"整层都一样"蒙对的
+  seq[0] = 0;
+  const longs = packing === 'cross' ? packCrossing(seq, 5, 4096) : packPadded(seq, 5, 4096);
+  const body = {
+    DataVersion: 3465, xPos: 0, zPos: 0, yPos: -4,
+    sections: [{ Y: 8, block_states: { palette, data: BigInt64Array.from(longs) } }]
+  };
+  return nbt.serialize('', body);
+}
+
+t('回归：1.18 顶层 sections + 填充打包能取到顶层方块', () => {
+  const root = nbt.parse(chunk18Buf('pad', 7)).value;
+  const a = wm.analyzeChunk(root);
+  assert.strictEqual(a.topName, 'minecraft:grass_block', '顶层方块名');
+  assert.strictEqual(a.topY, 8 * 16 + 15, 'Y=8 的 section 顶层');
+});
+
+t('回归：5 位宽下两种打包解出的结果确实不同（用错解码器会错位）', () => {
+  const pad = nbt.parse(chunk18Buf('pad', 7)).value;
+  const cross = nbt.parse(chunk18Buf('cross', 7)).value;
+  // 两份数据的**语义**就是同一个区块（整层 stone + 一格 grass），
+  // 如果解码器认错了打包方式，就会把填充位当成索引，读出一堆 stone 之外的调色板项。
+  assert.strictEqual(wm.analyzeChunk(pad).topName, 'minecraft:grass_block');
+  assert.strictEqual(wm.analyzeChunk(cross).topName, 'minecraft:grass_block');
+});
+
+t('回归：旧调用点传 sections 数组仍可用', () => {
+  const root = nbt.parse(chunk18Buf('pad', 7)).value;
+  assert.strictEqual(wm.topBlock(root.sections).name, 'minecraft:grass_block');
+});
+
 /* ---------- scan 端到端 ---------- */
 (async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wm-test-'));

@@ -37,3 +37,9 @@ Thumbs.db
 
 # ===== 个人 WorkBuddy 数据（若在子目录出现） =====
 .workbuddy/
+
+# ===== Lite 版（Rust + WebView2）=====
+# 编译产物：target/ 动辄几个 GB，绝不入库
+lite-tauri/target/
+# 本地便捷脚本
+lite-tauri/*.bat

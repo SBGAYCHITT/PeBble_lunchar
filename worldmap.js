@@ -13,6 +13,12 @@
  * 设计要点：
  *   - 方块/群系都是「位打包」存在 LONG_ARRAY 里，单 long 常 > 2^53，必须用 BigInt 解码
  *     （nbt.js 现已精确返回 BigInt）。
+ *   - **解码统一走 blockstate.js**。这里原本自己实现了一份 packedIndex，有两个真实缺陷：
+ *       ① 只实现了「跨 long 交叉打包」（≤1.15.2），1.16+ 改成不跨 long 后，
+ *          5/6/7/9 位宽的区块会解出**合法但错位**的方块 —— 地图颜色整体偏掉，不报错；
+ *       ② 只认 `Level.Sections`，而 1.18 把小写 `sections` 提到了顶层，
+ *          于是 1.18+ 存档地图整片空掉、也不报错。
+ *     共用一份解码器是这三个功能（地图 / 方块级 blame / 时间轴回放）唯一能保证一致的办法。
  *   - 实体热点顺便统计（从区块 NBT 的 Entities 直接数，给「实体清理建议」打地基）。
  *   - 纯函数 analyzeChunk(root) 不碰文件，单测直接喂合成 NBT root。
  *
@@ -20,13 +26,17 @@
  */
 const anvil = require('./anvil');
 const nbt = require('./nbt');
+const bs = require('./blockstate');
 
 /** 空气类方块（顶块是这些时继续向下找） */
-const AIR_NAMES = new Set(['minecraft:air', 'minecraft:cave_air', 'minecraft:void_air']);
+const AIR_NAMES = bs.AIR_NAMES;
 
 /** 几种不需要着色的「透明/流体顶部」——水/玻璃顶会回落到下面实心块，这里只在 blocks 层特殊处理水。 */
 function cleanName(name) {
-  return (name || '').replace(/^minecraft:/, '');
+  // 方块名现在由 blockstate.entryName 产出，带属性后缀（如 `oak_stairs[facing=north]`）。
+  // 着色是按方块**种类**匹配的，所以这里必须把 `[...]` 去掉，否则带状态的方块会整批
+  // 掉进兜底的哈希色，地图看上去像坏了一半。
+  return (name || '').replace(/^minecraft:/, '').replace(/\[[^\]]*\]$/, '');
 }
 
 /* ================= 颜色 ================= */
@@ -42,6 +52,11 @@ function blockColor(name) {
   if (n === 'sand' || n === 'red_sand' || n === 'soul_sand' || n === 'soul_soil') return [200, 184, 120];
   if (n === 'snow' || n === 'snow_block' || n === 'powder_snow' || n.endsWith('ice') || n === 'packed_ice' || n === 'frosted_ice') return [225, 235, 240];
   if (n === 'gravel') return [150, 146, 140];
+  // 泥土系单列一条：它以前落进兜底的哈希色（[105,116,122]），和石头 [120,120,124]
+  // 几乎分不出来。对一个"按颜色认方块"的视图来说这等于没上色 —— 地图和
+  // 时间轴回放都会因此看不清"这里被挖过/填过"。
+  if (n === 'dirt' || n === 'coarse_dirt' || n === 'rooted_dirt' || n === 'podzol' ||
+      n === 'farmland' || n === 'dirt_path' || n === 'mud' || n === 'clay') return [124, 86, 58];
   // 石头系
   if (n === 'stone' || n === 'andesite' || n === 'diorite' || n === 'granite' || n === 'cobblestone' || n === 'bedrock') return [120, 120, 124];
   if (n === 'netherrack' || n === 'crimson_nylium' || n === 'warped_nylium' || n === 'basalt' || n === 'blackstone') return [110, 52, 52];
@@ -100,78 +115,60 @@ function biomeColor(id) {
 
 /**
  * 从 LONG_ARRAY（BigInt[]）里取第 idx 个、占 bits 位的索引值。
- * 一个 long 64 位，可能横跨两个 long。
+ *
+ * ⚠️ 这是**交叉打包**（≤1.15.2，索引可以跨 long 边界）。1.16 起改成不跨 long，
+ * 那种情况请用 `bs.packedIndexPadded`，或者直接调 `bs.blockAt / layerAt / topBlock`
+ * —— 它们会从数据本身判断该用哪种打包。保留这个导出只为兼容既有调用点与单测。
  * @param {bigint[]} data
  * @param {number} idx
  * @param {number} bits
  * @returns {number}
  */
-function packedIndex(data, idx, bits) {
-  const bitOffset = idx * bits;
-  const longIndex = Math.floor(bitOffset / 64);
-  const bitInLong = bitOffset % 64;
-  const mask = (bits >= 64) ? -1n : ((1n << BigInt(bits)) - 1n);
-  // 兼容两种来源：真实区块的 data 是 BigInt[]（LONG_ARRAY），合成测试里可能是 Number[]（LIST of LONG）。
-  const a = BigInt(data[longIndex] || 0n);
-  let v = a >> BigInt(bitInLong);
-  if (bitInLong + bits > 64) {
-    const b = BigInt(data[longIndex + 1] || 0n);
-    v |= b << BigInt(64 - bitInLong);
-  }
-  v &= mask;
-  return Number(v);
-}
+const packedIndex = bs.packedIndexCrossing;
 
 /**
- * 区块 sections → 每列 (x,z) 的顶层非空气方块名 + 所在 Y。
- * 返回形如 { name, y } 或 null（整列全空）。
- * 支持 1.13/1.14 的 {Palette, BlockStates} 与 1.15+ 的 {block_states:{palette,data}}。
- * @param {Array<object>} sections
- * @returns {{name:string, y:number}|null}
+ * ⚠️ 已废弃：改用 `bs.blockAt / layerAt / topBlock`。
+ *
+ * 这个函数只认 `sec.block_states` / `sec.Palette`，且位宽判断与打包方式都自己写了一份，
+ * 是上面注释里那两个 bug 的所在地。保留导出（含 sections 数组入参）只为不打断现有调用点。
+ * @param {Array<object>|object} sectionsOrRoot
  */
-function topBlock(sections) {
-  if (!Array.isArray(sections) || !sections.length) return null;
-  const sorted = sections.slice().sort((a, b) => (Number(b.Y) || 0) - (Number(a.Y) || 0));
-  for (const sec of sorted) {
-    const Y = Number(sec.Y) || 0;
-    const bs = sec.block_states || (sec.Palette ? { palette: sec.Palette, data: sec.BlockStates } : null);
-    if (!bs || !Array.isArray(bs.palette) || !bs.palette.length) continue;
-    const palette = bs.palette;
-    const bits = palette.length <= 1 ? 0 : Math.max(4, 32 - Math.clz32(palette.length - 1));
-    const data = bits === 0 ? [] : (Array.isArray(bs.data) ? bs.data : []);
-    // 从最高一层的顶部找起
-    for (let yLocal = 15; yLocal >= 0; yLocal--) {
-      for (let z = 0; z < 16; z++) {
-        for (let x = 0; x < 16; x++) {
-          const i = (yLocal * 16 + z) * 16 + x;
-          let name;
-          if (bits === 0) name = palette[0] ? cleanName(palette[0].Name) : null;
-          else name = palette[packedIndex(data, i, bits)] ? cleanName(palette[packedIndex(data, i, bits)].Name) : null;
-          if (name && !AIR_NAMES.has('minecraft:' + name)) {
-            return { name: 'minecraft:' + name, y: Y * 16 + yLocal };
-          }
-        }
-      }
-    }
-  }
-  return null;
+function topBlock(sectionsOrRoot) {
+  if (Array.isArray(sectionsOrRoot)) return bs.topBlock({ sections: sectionsOrRoot });
+  return bs.topBlock(sectionsOrRoot);
+}
+
+/** 字符串 → 稳定的 32 位哈希（群系名 → 数字 id，让颜色逐次一致） */
+function hashName(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return h;
 }
 
 /**
- * 区块根 → 生物群系 id（尽力而为）。
- * 1.15-1.17 的 Level.Biomes 是 256/1024 长度的 int 数组；1.18+ 改成了 chunk 级 packed，
- * 这里优先取第一个有意义的整数，取不到返回 null。
+ * 区块根 → 生物群系 id（尽力而为）。两个时代存法完全不同：
+ *   · 1.15~1.17：`Level.Biomes` 是扁平的 int 数组。⚠️ nbt.js 把它解成 **Int32Array**，
+ *     而 `Array.isArray(Int32Array)` 是 false —— 早先只判断 Array，这条分支在真实区块上
+ *     从来没进过，群系层一直是空的。
+ *   · 1.18+    ：群系搬进每个 section 的 `biomes` 调色板，存的是 resource location
+ *     **字符串**（`minecraft:plains`）。地图只有"一个区块一个色块"的粒度，
+ *     这里把名字哈希成稳定的数字 id 交给 biomeColor，保证同一群系每次同色。
  * @param {object} root
+ * @param {number|null} topY 顶层方块所在的 y（决定读哪个 section 的群系）
  * @returns {number|null}
  */
-function chunkBiome(root) {
-  const lv = root.Level || root;
-  const b = lv.biomes || lv.Biomes;
-  if (Array.isArray(b) && b.length) {
-    for (const v of b) { const n = Number(v); if (!Number.isNaN(n)) return n; }
-    if (b[0] != null) return Number(b[0]);
+function chunkBiome(root, topY) {
+  const lv = root && typeof root === 'object' ? (root.Level || root) : null;
+  const b = lv && (lv.biomes || lv.Biomes);
+  if (Array.isArray(b) || ArrayBuffer.isView(b)) {
+    // 按下标扫而不是 for...of：TS 的类型定义里 ArrayBufferView 不保证可迭代，
+    // 而且这里只要一个有限数字，没必要引入迭代器语义。
+    const arr = /** @type {any} */ (b);
+    for (let i = 0; i < arr.length; i++) { const n = Number(arr[i]); if (Number.isFinite(n)) return n; }
+    return null;
   }
-  return null;
+  const name = bs.biomeNameAt(root, topY == null ? 0 : topY);
+  return name ? hashName(name) : null;
 }
 
 /* ================= 纯函数：分析单个区块 ================= */
@@ -183,12 +180,11 @@ function chunkBiome(root) {
  */
 function analyzeChunk(root) {
   if (!root || typeof root !== 'object') return { topName: null, topY: null, biome: null };
-  const lv = root.Level || root;
-  const tb = topBlock(lv.Sections);
+  const tb = bs.topBlock(root);
   return {
     topName: tb ? tb.name : null,
     topY: tb ? tb.y : null,
-    biome: chunkBiome(root)
+    biome: chunkBiome(root, tb ? tb.y : null)
   };
 }
 

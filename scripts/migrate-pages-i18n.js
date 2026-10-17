@@ -113,18 +113,40 @@ try {
   process.exit(3);
 }
 
-// 4) 写出 key 清单
+// 4) 写出 key 清单（只列本次新包裹的，便于 review）
 fs.writeFileSync(path.join(ROOT, '_pages_keys.json'), JSON.stringify(keys, null, 2));
 
-// 5) 生成 i18n-pages.js：zh-CN = 原始中文（字符串字面量）；模板字面量靠 fallback 覆盖，不进字典。
-//    en-US 暂为渐进迁移占位（空），运行期回退到 zh-CN 中文。
-const zhEntries = keys.filter((k) => k.type === 'string');
-const zhLines = zhEntries.map((k) => '    ' + JSON.stringify(k.key) + ': ' + JSON.stringify(k.text) + ',');
+// 5) 生成 i18n-pages.js：zh-CN = 所有「字符串字面量」原文；模板字面量靠 fallback 覆盖，不进字典。
+//
+// ⚠️ 这里必须从**改写后的完整源码**重新收集，而不是只用本次包裹出来的 keys。
+//    keys 只包含"本次新包裹的"字面量；拿它去写整份字典，第二次运行时会把上一次
+//    已经建好的词条整批抹掉 —— 覆盖率仍是 100%（源码里 fallback 还在），
+//    但字典少了 200 多条，测试里表现为"一堆老 key 退化成裸 key"。
+//    所以收集源一律用 out（全量），保证脚本可以反复运行。
+const sf2 = ts.createSourceFile(FILE, out, ts.ScriptTarget.Latest, true);
+/** @type {Array<{key:string, text:string}>} */
+const all = [];
+const seenKey = new Set();
+const collect = (node) => {
+  if (ts.isCallExpression(node) && isTCall(node) && node.arguments.length >= 3) {
+    const a0 = node.arguments[0], fb = node.arguments[2];
+    if (a0 && (ts.isStringLiteral(a0) || ts.isNoSubstitutionTemplateLiteral(a0)) &&
+        /^pg\.L\d+C\d+$/.test(a0.text) &&
+        fb && (ts.isStringLiteral(fb) || ts.isNoSubstitutionTemplateLiteral(fb))) {
+      if (!seenKey.has(a0.text)) { seenKey.add(a0.text); all.push({ key: a0.text, text: fb.text }); }
+    }
+  }
+  ts.forEachChild(node, collect);
+};
+ts.forEachChild(sf2, collect);
+
+const zhLines = all.map((k) => '    ' + JSON.stringify(k.key) + ': ' + JSON.stringify(k.text) + ',');
 const zhBody = zhLines.length ? '\n' + zhLines.join('\n') + '\n  ' : ' ';
 const dict = '// pages.js 文案字典（i18n-pages.js）。\n' +
   '// 由 scripts/migrate-pages-i18n.js 自动生成：key 形如 pg.L{行}C{序号}。\n' +
   '// 策略：zh-CN 收录所有「字符串字面量」原文；模板字面量（含 ${...}）因无法以静态字符串入字典，\n' +
   '//   统一走 T(key, null, <模板>) 的 fallback（JS 在调用处求值，中文零变化）。\n' +
+  '// ⚠️ 本文件由脚本从**全量源码**重建（不是只收本次新包裹的），因此脚本可反复运行。\n' +
   '// en-US 为渐进迁移占位：当前为空，运行期回退中文；需要英文时在此补 I18N.addDict(\'en-US\', {...})。\n' +
   '(function (root) {\n' +
   '  const I18N = (typeof module === \'object\' && module.exports) ? null : root.I18N;\n' +
@@ -138,6 +160,7 @@ const dict = '// pages.js 文案字典（i18n-pages.js）。\n' +
   '})(typeof self !== \'undefined\' ? self : this);\n';
 fs.writeFileSync(path.join(ROOT, 'i18n-pages.js'), dict, 'utf8');
 
-console.log('REWRITE 完成：包裹处数', edits.length, '，去重 key', keys.length,
-  '（字符串', zhEntries.length, '/ 模板', keys.length - zhEntries.length, '）');
-console.log('已写出 _pages_keys.json 与 i18n-pages.js；node --check 通过。');
+console.log('REWRITE 完成：本次新包裹', edits.length, '处（字符串',
+  keys.filter((k) => k.type === 'string').length, '/ 模板',
+  keys.filter((k) => k.type === 'template').length, '）');
+console.log('字典共写入', all.length, '条（从全量源码重建，脚本可反复运行）；node --check 通过。');

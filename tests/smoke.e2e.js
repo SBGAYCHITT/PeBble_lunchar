@@ -387,6 +387,233 @@ require('../main');
   if (six.lab.options < 2) sixBad.push('实验室预设下拉没填充');
   if (!six.lab.advice) sixBad.push('实验室没给出内存建议');
 
+  /* ---- V5 第一组：世界版本控制完整版（方块级 blame / 时间轴回放 / 自研三方合并） ----
+   * 这里刻意**混用**两半：写区块只能用 Node 侧（渲染进程没有 fs），但读、合并、
+   * 以及界面渲染都必须走真实 IPC + 真实 DOM。
+   *   只测模块本身的话，接线断了（少注册一个 channel、id 打错一个字）照样"全绿"。
+   * 用完把 V5World 这个版本库从真实 userData 里删掉，不给用户留垃圾。
+   */
+  const V5 = (() => {
+    const NBT = require('../nbt');
+    const anvil = require('../anvil');
+    const saveDir = path.join(fx.root, 'saves', 'V5World');
+    fs.mkdirSync(path.join(saveDir, 'region'), { recursive: true });
+    fs.writeFileSync(path.join(saveDir, 'level.dat'), require('zlib').gzipSync(Buffer.from('x')));
+    // 调色板 4 项 → 4 bit；section Y=4 → y ∈ [64, 80)
+    const PAL = [{ Name: 'minecraft:air' }, { Name: 'minecraft:stone' },
+      { Name: 'minecraft:dirt' }, { Name: 'minecraft:grass_block' }];
+    const idx = (x, y, z) => (((y - 64) * 16 + z) * 16 + x);
+    const pack = (seq, bits, total) => {
+      const per = Math.floor(64 / bits);
+      const out = new Array(Math.ceil(total / per)).fill(0n);
+      for (let i = 0; i < total; i++) out[Math.floor(i / per)] |= BigInt(seq[i]) << BigInt((i % per) * bits);
+      return out;
+    };
+    const put = (edits) => {
+      const seq = new Array(4096).fill(1);                 // 整层石头
+      for (const k of Object.keys(edits || {})) seq[Number(k)] = edits[k];
+      const raw = NBT.serialize('', {
+        DataVersion: 3465, xPos: 0, zPos: 0, yPos: -4,
+        sections: [{ Y: 4, block_states: { palette: PAL, data: BigInt64Array.from(pack(seq, 4, 4096)) } }]
+      });
+      anvil.writeSaveChunk({ saveDir, dim: 'overworld', kind: 'region', cx: 0, cz: 0, raw, backup: false });
+    };
+    return { saveDir, idx, put };
+  })();
+  const V5_LIB = path.join(app.getPath('userData'), 'worldver', 'V5World');
+
+  const v5a = await win.webContents.executeJavaScript(`(async () => {
+    const sd = ${JSON.stringify(V5.saveDir)};
+    const out = {};
+    out.track = await window.api.worldVerTrack(sd, '冒烟：开始跟踪');
+    out.c1 = out.track.initial;
+    return out;
+  })()`);
+
+  V5.put({ [V5.idx(3, 64, 5)]: 2 });                                   // (3,64,5) → 泥土
+  const v5b = await win.webContents.executeJavaScript(
+    `window.api.worldVerCommit(${JSON.stringify(V5.saveDir)}, '冒烟：放下泥土', null)`);
+
+  V5.put({ [V5.idx(3, 64, 5)]: 2, [V5.idx(9, 64, 9)]: 3 });            // 旁边种草，(3,64,5) 不动
+  const v5c = await win.webContents.executeJavaScript(
+    `window.api.worldVerCommit(${JSON.stringify(V5.saveDir)}, '冒烟：旁边种草', null)`);
+  console.log('V5 提交链:', JSON.stringify({ c1: v5a.c1, c2: v5b.id, c3: v5c.id }));
+
+  // exp 分支：把 (3,64,5) 改成草；main 分支：另加一块泥土 → 应当"方块级不冲突"
+  const v5branch = await win.webContents.executeJavaScript(`(async () => {
+    const sd = ${JSON.stringify(V5.saveDir)};
+    await window.api.worldVerBranchCreate(sd, 'exp', ${JSON.stringify(v5c.id)});
+    return window.api.worldVerBranchSwitch(sd, 'exp');
+  })()`);
+  V5.put({ [V5.idx(3, 64, 5)]: 3, [V5.idx(9, 64, 9)]: 3 });
+  const v5exp = await win.webContents.executeJavaScript(
+    `window.api.worldVerCommit(${JSON.stringify(V5.saveDir)}, '冒烟：exp 泥土改草', null)`);
+
+  await win.webContents.executeJavaScript(
+    `window.api.worldVerBranchSwitch(${JSON.stringify(V5.saveDir)}, 'main')`);
+  await win.webContents.executeJavaScript(
+    `window.api.worldVerCheckout(${JSON.stringify(V5.saveDir)}, ${JSON.stringify(v5c.id)}, true)`);
+  V5.put({ [V5.idx(3, 64, 5)]: 2, [V5.idx(9, 64, 9)]: 3, [V5.idx(12, 64, 7)]: 2 });
+  const v5main = await win.webContents.executeJavaScript(
+    `window.api.worldVerCommit(${JSON.stringify(V5.saveDir)}, '冒烟：main 另加泥土', null)`);
+  console.log('V5 分支:', JSON.stringify({ exp: v5exp.id, main: v5main.id, sw: v5branch.branch }));
+
+  const v5 = await win.webContents.executeJavaScript(`(async () => {
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const sd = ${JSON.stringify(V5.saveDir)};
+    const C1 = ${JSON.stringify(v5a.c1)}, C2 = ${JSON.stringify(v5b.id)}, C3 = ${JSON.stringify(v5c.id)};
+    const out = {};
+
+    // 1) 方块级 blame：必须归属到"最先把它变成现在这个状态"的那次提交
+    const b = await window.api.worldVerBlameBlock({ saveDir: sd, x: 3, y: 64, z: 5 });
+    out.blame = { state: b.state, chunk: b.chunk, touched: b.touched,
+      ids: (b.history || []).map(h => h.id), current: b.history && b.history[0] && b.history[0].current };
+
+    // 2) 时间轴：帧必须由旧到新
+    const tl = await window.api.worldVerTimeline({ saveDir: sd, cx: 0, cz: 0 });
+    out.tl = { n: tl.frames.length, ids: tl.frames.map(f => f.id) };
+
+    // 3) 单帧内容 + 颜色（颜色是主进程按 worldmap.blockColor 映射过来的）
+    const f1 = await window.api.worldVerFrame({ saveDir: sd, cx: 0, cz: 0, y: 64, id: C1 });
+    const f2 = await window.api.worldVerFrame({ saveDir: sd, cx: 0, cz: 0, y: 64, id: C2 });
+    // 着色表只在主进程（worldmap.blockColor），这里必须能拿到真颜色：
+    // 石头 = [120,120,124]，泥土 = [124,86,58]。「有数组但全是 null」也是一种坏法，
+    // 所以直接比数值。
+    out.frame = {
+      n: (f1.states || []).length,
+      c1: f1.states && f1.states[5 * 16 + 3],
+      c2: f2.states && f2.states[5 * 16 + 3],
+      colors: (f2.colors || []).length,
+      stoneColor: f1.colors && f1.colors[0],
+      dirtColor: f2.colors && f2.colors[5 * 16 + 3]
+    };
+
+    // 4) 三方合并计划：区块级冲突 1 个，但方块级其实不冲突
+    const p = await window.api.worldVerMergePlan({ saveDir: sd, ours: 'main', theirs: 'exp' });
+    out.plan = { base: p.base, conflict: p.stats.conflict, conflictCount: p.conflictCount,
+      decoded: !!(p.conflicts[0] && p.conflicts[0].detail && p.conflicts[0].detail.decoded),
+      blockConflict: p.conflicts[0] && p.conflicts[0].detail && p.conflicts[0].detail.conflict,
+      disjoint: p.conflicts[0] && p.conflicts[0].detail && p.conflicts[0].detail.disjoint,
+      dropped: p.conflicts[0] && p.conflicts[0].dropped,
+      droppedTotal: p.stats.droppedBlocks,
+      partial: p.droppedPartial };
+
+    // 5) 有冲突时默认拒绝合并，但错误里必须带计划书（UI 靠它显示冲突详情）
+    const denied = await window.api.worldVerMergeApply({ saveDir: sd, ours: 'main', theirs: 'exp' });
+    out.denied = { ok: denied.ok, code: denied.code, hasPlan: !!denied.plan };
+
+    // 6) 界面：世界页 → 回放与合并 → 真的点按钮
+    //    注意顺序：这几步必须排在"真的执行合并"之前 —— 合并成功之后
+    //    main 上就有了 exp，再预览只会得到 upToDate，什么都测不到。
+    const nav = [...document.querySelectorAll('.nav-item')].find(x => x.getAttribute('data-page') === 'world');
+    if (nav) nav.click();
+    await sleep(250);
+    const tab = document.querySelector('#world-tabs .tab[data-wtab="replay"]');
+    out.ui = { hasNav: !!nav, hasTab: !!tab, hasCanvas: !!document.getElementById('wvr-canvas'),
+      hasBlameBtn: !!document.getElementById('wvr-blame-btn') };
+    if (tab) tab.click();
+    await sleep(200);
+    document.getElementById('wv-dir').value = sd;
+    document.getElementById('wvr-refresh').click();
+    await sleep(400);
+    out.ui.oursOptions = document.getElementById('wvr-ours').options.length;
+    out.ui.theirsValue = document.getElementById('wvr-theirs').value;
+    out.ui.mergeBtnEnabled = !document.getElementById('wvr-merge-plan').disabled;
+
+    document.getElementById('wvr-x').value = '3';
+    document.getElementById('wvr-y').value = '64';
+    document.getElementById('wvr-z').value = '5';
+    document.getElementById('wvr-blame-btn').click();
+    await sleep(500);
+    out.ui.blameRows = document.querySelectorAll('#wvr-blame .item').length;
+    out.ui.blameHead = (document.getElementById('wvr-blame-state').textContent || '').slice(0, 30);
+
+    document.getElementById('wvr-play-btn').click();
+    await sleep(600);
+    out.ui.sliderMax = document.getElementById('wvr-slider').max;
+    out.ui.sliderEnabled = !document.getElementById('wvr-slider').disabled;
+    out.ui.tip = (document.getElementById('wvr-tip').textContent || '').slice(0, 24);
+    // 画布必须真画出东西：全黑或全同色都算失败
+    const cv = document.getElementById('wvr-canvas');
+    let painted = 0;
+    if (cv && cv.width) {
+      const px = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+      const seen = new Set();
+      for (let i = 0; i < px.length; i += 4) seen.add(px[i] + ',' + px[i + 1] + ',' + px[i + 2]);
+      painted = seen.size;
+    }
+    out.ui.distinctColors = painted;
+
+    // 7) 界面上的合并预览：冲突详情必须落到 UI 文本里
+    document.getElementById('wvr-ours').value = 'main';
+    document.getElementById('wvr-theirs').value = 'exp';
+    document.getElementById('wvr-merge-plan').click();
+    await sleep(600);
+    const mt = document.getElementById('wvr-merge').textContent || '';
+    out.ui.mergeText = mt.slice(0, 80);
+    out.ui.mergeMentionsBlock = mt.indexOf('方块级') >= 0;
+    // 「整块取一侧」的代价必须出现在界面上，不能只躺在返回值里
+    out.ui.mergeMentionsLoss = mt.indexOf('会丢掉') >= 0;
+
+    // 8) 指定策略后放行，生成两个父的合并提交
+    const mg = await window.api.worldVerMergeApply({ saveDir: sd, ours: 'main', theirs: 'exp',
+      strategy: 'ours', allowConflicts: true, message: '冒烟：合并 exp' });
+    out.merge = { ok: mg.ok, fastForward: mg.fastForward, id: mg.id, conflicts: mg.conflicts };
+    const fm = await window.api.worldVerFrame({ saveDir: sd, cx: 0, cz: 0, y: 64, id: mg.id });
+    out.mergedAt = { x3: fm.states && fm.states[5 * 16 + 3], x12: fm.states && fm.states[7 * 16 + 12] };
+    return out;
+  })()`);
+  console.log('V5 世界版本控制:', JSON.stringify(v5));
+
+  const v5Bad = [];
+  if (!v5a.c1) v5Bad.push('纳入跟踪没有返回初始提交');
+  if (v5.blame.state !== 'minecraft:dirt') v5Bad.push('blame 当前状态错: ' + v5.blame.state);
+  if (v5.blame.chunk !== '0,0') v5Bad.push('blame 区块映射错: ' + v5.blame.chunk);
+  // HEAD 在 main 上：c1/c2/c3/main 四次提交都碰过 chunk(0,0)，
+  // 但 main 和 c3 让这一格保持"泥土"，所以历史归并后只剩 c2（泥土）+ c1（石头）两条
+  if (v5.blame.touched !== 4) v5Bad.push('blame 碰过的提交数应为 4，实际 ' + v5.blame.touched);
+  if (v5.blame.ids.length !== 2) v5Bad.push('blame 历史应归并成 2 条（泥土、石头），实际 ' + JSON.stringify(v5.blame.ids));
+  if (v5.blame.ids[0] !== v5b.id) v5Bad.push('blame 没归属到 c2（放下泥土）: ' + JSON.stringify(v5.blame.ids));
+  if (v5.blame.ids.indexOf(v5c.id) >= 0) v5Bad.push('c3 没改变这一格却出现在 blame 里');
+  if (!v5.blame.current) v5Bad.push('blame 首条没标成当前状态');
+  // 帧列表走的是 HEAD（main）的第一父链，exp 不在链上，所以是 c1/c2/c3/main
+  if (v5.tl.n !== 4) v5Bad.push('时间轴帧数应为 4，实际 ' + v5.tl.n);
+  if (JSON.stringify(v5.tl.ids) !== JSON.stringify([v5a.c1, v5b.id, v5c.id, v5main.id])) {
+    v5Bad.push('时间轴不是由旧到新: ' + JSON.stringify(v5.tl.ids));
+  }
+  if (v5.tl.ids.indexOf(v5exp.id) >= 0) v5Bad.push('exp 不在 main 的第一父链上，不该出现在帧列表里');
+  if (v5.frame.n !== 256) v5Bad.push('单帧应为 16×16=256 格，实际 ' + v5.frame.n);
+  if (v5.frame.c1 !== 'minecraft:stone') v5Bad.push('c1 那格应为石头，实际 ' + v5.frame.c1);
+  if (v5.frame.c2 !== 'minecraft:dirt') v5Bad.push('c2 那格应为泥土，实际 ' + v5.frame.c2);
+  if (v5.frame.colors !== 256) v5Bad.push('单帧颜色数组长度应为 256，实际 ' + v5.frame.colors);
+  if (String(v5.frame.stoneColor) !== '120,120,124') v5Bad.push('石头着色不对: ' + JSON.stringify(v5.frame.stoneColor));
+  if (String(v5.frame.dirtColor) !== '124,86,58') v5Bad.push('泥土着色不对: ' + JSON.stringify(v5.frame.dirtColor));
+  if (v5.plan.base !== v5c.id) v5Bad.push('共同祖先应为 c3，实际 ' + v5.plan.base);
+  if (v5.plan.conflict !== 1) v5Bad.push('应报 1 个区块级冲突，实际 ' + v5.plan.conflict);
+  if (!v5.plan.decoded) v5Bad.push('冲突没有做方块级分析');
+  if (v5.plan.blockConflict !== 0) v5Bad.push('两边改的是不同方块，方块级冲突应为 0，实际 ' + v5.plan.blockConflict);
+  if (!v5.plan.disjoint) v5Bad.push('没有识别出"两边改动不相交"');
+  // 合并只能整块取一侧 → 必须报出会丢掉几个方块改动
+  if (v5.plan.dropped !== 1) v5Bad.push('没有报出"按我方落点会丢掉对方 1 个方块改动": ' + v5.plan.dropped);
+  if (v5.plan.droppedTotal !== 1) v5Bad.push('droppedBlocks 合计不对: ' + v5.plan.droppedTotal);
+  if (v5.plan.partial) v5Bad.push('只有 1 个冲突区块却标成了分析截断');
+  if (v5.denied.ok !== false || v5.denied.code !== 'MERGE_CONFLICT') v5Bad.push('有冲突时默认应拒绝合并: ' + JSON.stringify(v5.denied));
+  if (!v5.denied.hasPlan) v5Bad.push('拒绝合并时没把计划书带回渲染层（UI 就没法显示冲突）');
+  if (v5.merge.ok !== true || !v5.merge.id) v5Bad.push('策略放行后合并没成功: ' + JSON.stringify(v5.merge));
+  if (v5.merge.fastForward) v5Bad.push('两侧各有改动，不该是快进');
+  if (v5.mergedAt.x3 !== 'minecraft:dirt') v5Bad.push('合并结果冲突区块没按我方落点: ' + v5.mergedAt.x3);
+  if (v5.mergedAt.x12 !== 'minecraft:dirt') v5Bad.push('合并结果丢掉了我方的另一处改动: ' + v5.mergedAt.x12);
+  if (!v5.ui.hasNav || !v5.ui.hasTab || !v5.ui.hasCanvas || !v5.ui.hasBlameBtn) v5Bad.push('世界页「回放与合并」容器缺失: ' + JSON.stringify(v5.ui));
+  if (!(v5.ui.oursOptions >= 2)) v5Bad.push('合并的分支下拉没填充: ' + v5.ui.oursOptions);
+  if (!v5.ui.mergeBtnEnabled) v5Bad.push('有两个分支时合并按钮仍是禁用的');
+  if (!v5.ui.blameRows) v5Bad.push('点「这格是谁改的」没有渲染出任何历史行');
+  if (!v5.ui.sliderEnabled || Number(v5.ui.sliderMax) !== 3) v5Bad.push('时间轴滑块没就绪: max=' + v5.ui.sliderMax + ' enabled=' + v5.ui.sliderEnabled);
+  if (!(v5.ui.distinctColors >= 2)) v5Bad.push('回放画布没有画出内容（颜色数 ' + v5.ui.distinctColors + '）');
+  if (!v5.ui.mergeMentionsBlock) v5Bad.push('界面上的合并预览没显示方块级分析: ' + v5.ui.mergeText);
+  if (!v5.ui.mergeMentionsLoss) v5Bad.push('界面上的合并预览没提示"会丢掉哪些方块改动": ' + v5.ui.mergeText);
+
+  try { fs.rmSync(V5_LIB, { recursive: true, force: true }); } catch {}
+
   /* ---- 关键路径强化：13 页导航 + 关于页版本 + 设置读写 + 截图整理 + 启动 IPC ----
    * 直接对应发版前最该保住的用户路径。GUI 子进程在 CI 沙箱里跑不了，
    * 但这些断言保留，在真机 `npm run test:e2e` 时生效。
@@ -455,7 +682,7 @@ require('../main');
   if (errors.length) console.log('  ', errors.slice(0, 6).join('\n   '));
 
   fs.rmSync(fx.root, { recursive: true, force: true });
-  const bad = ldBad.concat(sixBad, hardenBad);
+  const bad = ldBad.concat(sixBad, v5Bad, hardenBad);
   if (bad.length) {
     console.error('SMOKE FAILED（断言）: ' + bad.join(' / '));
     app.quit();

@@ -493,28 +493,109 @@
       applyLang((r && r.lang) || $('sys-lang').value);
     });
 
+    /* ---------- 自动更新：检查 → 下载 → 重启安装 ---------- */
+    // 上一次检查到的清单。下载/安装要用它，所以留在闭包里，不往 DOM 上挂。
+    let lastFeed = null;
+    const updShow = (id, on) => { const el = $(id); if (el) el.hidden = !on; };
+    const updSay = (txt) => { const el = $('update-result'); if (el) el.textContent = txt; };
+    const updMb = (n) => (Number(n) / 1048576).toFixed(1) + ' MB';
+
+    // 下载过程由主进程推过来（79MB 按分钟计，invoke 挂不住那么久）
+    const onUpdProgress = (p) => {
+      if (!p) return;
+      if (p.phase === 'downloading') {
+        updShow('update-progress-row', true);
+        updShow('btn-update-cancel', true);
+        updShow('btn-update-download', false);
+        updSay('');
+        const bar = $('update-bar');
+        if (bar) bar.value = p.percent || 0;
+        const txt = $('update-progress-text');
+        if (txt) txt.textContent = T('upd.downloading', { percent: p.percent || 0 });
+      } else if (p.phase === 'done') {
+        updShow('update-progress-row', false);
+        updShow('btn-update-cancel', false);
+        updShow('btn-update-apply', true);
+        updSay(T('upd.dlDone', { size: updMb(p.bytes) }));
+      } else if (p.phase === 'cancelled') {
+        updShow('update-progress-row', false);
+        updShow('btn-update-cancel', false);
+        updShow('btn-update-download', true);
+        updSay(T('upd.cancelled'));
+      } else if (p.phase === 'error') {
+        updShow('update-progress-row', false);
+        updShow('btn-update-cancel', false);
+        updShow('btn-update-download', true);
+        updSay(T('upd.dlFailed') + (p.error || T('common.unknown')));
+      }
+    };
+    if (window.api.onUpdateProgress) window.api.onUpdateProgress(onUpdProgress);
+
     if ($('btn-update-check')) $('btn-update-check').onclick = async () => {
-      const el = $('update-result');
-      if (el) el.textContent = T('upd.checking');
+      updSay(T('upd.checking'));
       const feed = $('sys-feed') ? $('sys-feed').value : '';
       try {
         await window.api.updateFeedSet(feed);
         const r = await window.api.updateCheck(feed);
-        if (!el) return;
-        el.textContent = '';
-        if (!r || !r.ok) { el.textContent = T('upd.checkFailed') + ((r && r.error) || T('common.unknown')); return; }
-        if (r.hasUpdate) {
-          el.textContent = T('upd.found', { latest: r.latestVersion, current: r.currentVersion });
-          if (r.url) {
-            const a = document.createElement('a');
-            a.href = '#'; a.textContent = T('upd.openPage');
-            a.onclick = (ev) => { ev.preventDefault(); window.api.openExternal(r.url); };
-            el.appendChild(a);
-          }
-          if (r.notes) PL.appendLog(T('upd.logPrefix') + r.notes);
-        } else el.textContent = T('upd.latest', { current: r.currentVersion });
-      } catch (e) { if (el) el.textContent = T('upd.checkFailed') + e.message; }
+        lastFeed = (r && r.ok && r.hasUpdate) ? r : null;
+        updShow('update-actions', !!(r && r.ok && r.hasUpdate));
+        updShow('update-progress-row', false);
+        updShow('btn-update-cancel', false);
+        updShow('btn-update-apply', false);
+        if (!r || !r.ok) { updSay(T('upd.checkFailed') + ((r && r.error) || T('common.unknown'))); return; }
+        if (!r.hasUpdate) { updSay(T('upd.latest', { current: r.currentVersion })); return; }
+        // 清单里带 sha256 才敢自动装；只给了个链接就退回「打开下载页」
+        updShow('btn-update-download', !!r.canAutoInstall);
+        updShow('btn-update-open', !r.canAutoInstall && !!r.url);
+        updSay(r.canAutoInstall
+          ? T('upd.found', { latest: r.latestVersion, current: r.currentVersion })
+          : T('upd.noSha'));
+        if (r.notes) PL.appendLog(T('upd.logPrefix') + r.notes);
+      } catch (e) { updSay(T('upd.checkFailed') + e.message); }
     };
+
+    if ($('btn-update-download')) $('btn-update-download').onclick = async () => {
+      if (!lastFeed) return;
+      updSay(T('upd.dlStarted'));
+      const r = await window.api.updateDownload({
+        url: lastFeed.url, sha256: lastFeed.sha256, size: lastFeed.size, version: lastFeed.latestVersion
+      });
+      if (!r || !r.ok) { updSay(T('upd.dlFailed') + ((r && r.error) || T('common.unknown'))); return; }
+      updShow('update-progress-row', true);
+      updShow('btn-update-cancel', true);
+      updShow('btn-update-download', false);
+    };
+
+    if ($('btn-update-open')) $('btn-update-open').onclick = () => {
+      if (lastFeed && lastFeed.url) window.api.openExternal(lastFeed.url);
+    };
+
+    if ($('btn-update-cancel')) $('btn-update-cancel').onclick = () => window.api.updateCancel();
+
+    if ($('btn-update-apply')) $('btn-update-apply').onclick = async () => {
+      updSay(T('upd.applying'));
+      const r = await window.api.updateApply();
+      // 成功的话主进程随后就退出了，这里基本看不到；真看到了说明没退成
+      if (!r || !r.ok) updSay(T('upd.applyFailed') + ((r && r.error) || T('common.unknown')));
+    };
+
+    if ($('btn-update-folder')) $('btn-update-folder').onclick = () => window.api.updateOpenFolder();
+
+    // 恢复现场：上次下完没来得及装，重启后「立即重启安装」还得在
+    (async () => {
+      try {
+        const st = await window.api.updateStatus();
+        if (!st || !st.ok) return;
+        if (st.feed && $('sys-feed') && !$('sys-feed').value) $('sys-feed').value = st.feed;
+        if (st.staged) {
+          updShow('update-actions', true);
+          updShow('btn-update-download', false);
+          updShow('btn-update-open', false);
+          updShow('btn-update-apply', true);
+          updSay(T('upd.staged', { version: st.staged.version, size: updMb(st.staged.bytes) }));
+        }
+      } catch { /* 取不到就按「没有待安装」处理，不打扰用户 */ }
+    })();
 
     if ($('btn-java-dl')) $('btn-java-dl').onclick = async () => {
       const major = parseInt($('java-major').value, 10) || 21;
@@ -617,6 +698,8 @@
   PAGE_INIT.perf = async () => { P().initPerf(); };
 
   PAGE_INIT.modkit = async () => { P().initModkit(); };
+
+  PAGE_INIT.cloud = async () => { P().initCloud(); };
 
   function bindNav() {
     document.querySelectorAll('.nav-item').forEach(btn => {

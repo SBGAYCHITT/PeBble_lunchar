@@ -141,9 +141,17 @@ contextBridge.exposeInMainWorld('api', {
   onSysconfChanged: (cb) => { ipcRenderer.on('sysconf-changed', (_e, c) => cb(c)); },
   onTrayAction: (cb) => { ipcRenderer.on('tray-action', (_e, a) => cb(a)); },
 
-  /* 组7：自动更新 */
+  /* 组7：自动更新
+   * updateCheck 只回"有没有新版"；下载/安装是另一条路 ——
+   * 下载要几分钟，进度与结果都从 onUpdateProgress 推过来，invoke 立刻返回 {started:true}。 */
   updateCheck: (feedUrl) => ipcRenderer.invoke('update-check', feedUrl),
   updateFeedSet: (url) => ipcRenderer.invoke('update-feed-set', url),
+  updateStatus: () => ipcRenderer.invoke('update-status'),
+  updateDownload: (o) => ipcRenderer.invoke('update-download', o),
+  updateCancel: () => ipcRenderer.invoke('update-cancel'),
+  updateApply: () => ipcRenderer.invoke('update-apply'),
+  updateOpenFolder: () => ipcRenderer.invoke('update-open-folder'),
+  onUpdateProgress: (cb) => { ipcRenderer.on('update-progress', (_e, p) => cb(p)); },
 
   /* 组7：截图增强 */
   shotsMeta: (gd) => ipcRenderer.invoke('shots-meta', gd),
@@ -178,14 +186,31 @@ contextBridge.exposeInMainWorld('api', {
   worldVerCheckout: (saveDir, ref, prune) => ipcRenderer.invoke('world-ver-checkout', saveDir, ref, prune),
   worldVerDiff: (saveDir, a, b) => ipcRenderer.invoke('world-ver-diff', saveDir, a, b),
   worldVerBlame: (saveDir, cx, cz, dim, kind, id) => ipcRenderer.invoke('world-ver-blame', saveDir, cx, cz, dim, kind, id),
+  // V5 第一组
+  worldVerBlameBlock: (o) => ipcRenderer.invoke('world-ver-blame-block', o),
+  worldVerTimeline: (o) => ipcRenderer.invoke('world-ver-timeline', o),
+  worldVerFrame: (o) => ipcRenderer.invoke('world-ver-frame', o),
+  worldVerMergePlan: (o) => ipcRenderer.invoke('world-ver-merge-plan', o),
+  worldVerMergeApply: (o) => ipcRenderer.invoke('world-ver-merge-apply', o),
   worldVerGc: (saveDir) => ipcRenderer.invoke('world-ver-gc', saveDir),
   worldVerStats: (saveDir) => ipcRenderer.invoke('world-ver-stats', saveDir),
   worldMergePlan: (o) => ipcRenderer.invoke('world-merge-plan', o),
   worldMergeApply: (o) => ipcRenderer.invoke('world-merge-apply', o),
   worldMapScan: (saveDir, dim, layer) => ipcRenderer.invoke('world-map-scan', saveDir, dim, layer),
   worldMapRegions: (saveDir, dim) => ipcRenderer.invoke('world-map-regions', saveDir, dim),
-  worldDbIndex: (gameDir) => ipcRenderer.invoke('world-db-index', gameDir),
+  // gameDir 可以是单个字符串，也可以是一组（多启动器 / 多版本共用一份索引）。
+  // opts: { force, incremental, dims } —— force 表示"别信缓存，重新扫一遍"。
+  worldDbIndex: (gameDir, opts) => ipcRenderer.invoke('world-db-index', gameDir, opts),
   worldDbSearch: (gameDir, query) => ipcRenderer.invoke('world-db-search', gameDir, query),
+  // 存档自检：真实存档跑一遍 decode→re-encode，逐字节比对。
+  // opt.limit 不传默认 4000 个区块，传 0 才是全量。
+  // 返回一个取消订阅的函数 —— 弹窗关掉后必须摘掉监听，否则点几次就叠几个回调。
+  worldSelfcheck: (saveDir, opt) => ipcRenderer.invoke('world-selfcheck', saveDir, opt),
+  onSelfcheckProgress: (cb) => {
+    const h = (_e, p) => cb(p);
+    ipcRenderer.on('selfcheck-progress', h);
+    return () => ipcRenderer.removeListener('selfcheck-progress', h);
+  },
 
   /* 性能：诊断 / 自动调参 */
   perfProfile: () => ipcRenderer.invoke('perf-profile'),
@@ -245,6 +270,23 @@ contextBridge.exposeInMainWorld('api', {
   acctSummary: (o) => ipcRenderer.invoke('acct-summary', o),
   acctForInstance: (o) => ipcRenderer.invoke('acct-for-instance', o),
   acctBind: (o) => ipcRenderer.invoke('acct-bind', o),
+
+  /* 云端（PeBble Cloud）：云账号 + 云存档，对接账户迁移。
+     返回体一律是 {ok:false, error, code} 而不是 reject，code 用来区分
+     「登录过期 / 没登录 / 网络不通」，界面据此决定切回登录视图还是只提示重试。
+     token 不会经过这里 —— 它只留在主进程和加密存储里。 */
+  cloudStatus: () => ipcRenderer.invoke('cloud-status'),
+  cloudCheck: () => ipcRenderer.invoke('cloud-check'),
+  cloudRegister: (username, password) => ipcRenderer.invoke('cloud-register', username, password),
+  cloudLogin: (username, password) => ipcRenderer.invoke('cloud-login', username, password),
+  cloudLogout: () => ipcRenderer.invoke('cloud-logout'),
+  cloudPut: (key, data) => ipcRenderer.invoke('cloud-put', key, data),
+  cloudGet: (key) => ipcRenderer.invoke('cloud-get', key),
+  cloudList: () => ipcRenderer.invoke('cloud-list'),
+  cloudDelete: (key) => ipcRenderer.invoke('cloud-delete', key),
+  cloudUploadProfiles: (data) => ipcRenderer.invoke('cloud-upload-profiles', data),
+  cloudDownloadProfiles: () => ipcRenderer.invoke('cloud-download-profiles'),
+  cloudProfilesInfo: () => ipcRenderer.invoke('cloud-profiles-info'),
 
   // 注：退出码统一走 onLaunchState({state:'exited', code})，不再单独发 'game-exit'
   onLaunchState: (cb) => ipcRenderer.on('launch-state', (_e, s) => cb(s)),

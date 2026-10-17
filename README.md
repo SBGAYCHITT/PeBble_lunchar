@@ -77,6 +77,11 @@ CurseForge 返回的 HTML 描述一律剥成纯文本。
   - 扫 `region/` 与 1.18+ 的 `entities/`，跨主世界 / 下界 / 末地
   - 找出：损坏区块（偏移越界 / 长度异常 / 解压失败）、超大区块（>1MB，读取卡顿）、
     **实体热点**（单区块实体数过多 = 卡顿源头，精确到区块坐标）
+  - **深度自检（字节级）**：把每个区块解出来再原样写回，逐字节比对。
+    上面那些回答的是"读得出来吗"，这一步回答的是"读出来再写回去，还是原来那个字节吗"——
+    只有它能证明我们的编解码不会在玩家保存时悄悄改动存档。
+    比对的是**解压后的 NBT**（压缩负载重新压过必然不同）；LZ4 区块与解不开的区块如实标成
+    "未检查"而不是"通过"。默认抽查 4000 个区块，全程只读。
 - **Mod 守卫「后悔药」**（`modguard.js`）
   - 直接读 jar 里的 `fabric.mod.json` / `quilt.mod.json` / `mods.toml` / `neoforge.mods.toml` / `mcmod.info`，
     拿到真实的 modId / 版本 / 载入器 / MC 版本区间 / 依赖项——**不靠文件名猜**
@@ -93,14 +98,61 @@ CurseForge 返回的 HTML 描述一律剥成纯文本。
   - **`commit` 和 `status` 都是只读的**：提交只记录、不改存档；"看一眼改了什么"不会往库里写任何东西
   - `checkout` 是唯一会写存档的操作，落盘前**先自动打一份时光机快照**，每个 region 文件再留 `.bak`
   - `blame` 回答"这个区块是哪次提交改的"，历史里连"被删掉"那一步都在
+  - **完整版（V5 第一组）补齐三块能力**，都在「世界 → 回放与合并」页：
+    - **方块级 blame**：给一个**世界坐标**，回答"这一格是谁改的"。归属到**最先把它变成现在这个状态**
+      的那次提交，而不是"最近碰过这个区块的提交"—— 只改了旁边的方块时状态没变，那种提交不该出现在历史里
+    - **时间轴回放**：把这个区块在历次提交里的样子排成帧（**由旧到新**），拖滑块就能回放，
+      画布上 16×16 一格一色，可勾选"只标出这一步改动的格子"（和上一帧逐格对照）
+    - **自研三方合并**：`mergePlan`（只读）+ `mergeApply`。共同祖先走**全部父节点**（含合并父）——
+      只看第一父链会退化到根提交，两侧自开始以来的全部改动都会被误判成冲突
+    - 解码统一走 `blockstate.js`：1.16 起位打包从"跨 long"改成"不跨 long"，1.18 起 `sections`
+      从 `Level` 提到顶层。用错解码器不会报错，只会给出**合法但错位**的方块名 —— 所以判据是
+      数据本身（long 个数 / 填充位是否为 0），不是 DataVersion
+    - **保类型的 NBT 写入端（V5 第二组补完）**：`nbt.js` 新增类型旁路表（`newTypes()`），
+      解析时把「JS 值看不出来的类型」记下来，写回时优先按**原类型**编码，于是
+      `mergeChunkBytes` 能真的产出"两侧改动都保留"的区块字节了。这条路原本被三处静默类型改写堵死：
+      `PostProcessing` 是 LIST of SHORT（值全是 0，按值推断会写成 LIST of INT，游戏读这种区块直接抛异常）、
+      实体 `Pos` 是 LIST of DOUBLE（值恰好整数时会被写成 INT）、
+      `LONG_ARRAY` 在 JS 里就是一个普通 Array（和 LIST 无法区分）。**改数组内容要原地改**
+      （`arr[i]=v` / `push` / `length=0`），换新数组对象必须自己登记 `types.node`
+    - **合流的两道硬闸门**：① 对方的改动落在我方没有的区段（我们只能重写自己已有的 section，
+      碰不到的地方谈不上合并）；② 涉及**方块实体载体**（箱子/告示牌/刷怪笼），
+      硬合的结果是箱子变空 —— 那是静默丢数据，比光照过时严重得多
+    - **默认只拦"会丢东西"的合并**：冲突区块先试方块级合流，**损失为 0 的自动合并**
+      （同一个区块里两边改到不同格，和 git 一样不算冲突）；只有"合不了的"或"合完还有真冲突"
+      的才要用户点头。判据是逐块检查 `!mergeable || dropped > 0`，**不是**看有没有冲突 ——
+      把"算不出来"当成"没事"就是静默丢数据
+    - **如实上报光照风险**：改动两侧只要有一边不是不透明完整方块，该格的光照与高度图就过时。
+      逐格列进 `lightRisk` 交给调用方，不拒绝也不咽下去
+    - 合流仍然**不碰存档目录**：`mergeApply` 只写版本库，要落盘还是合并完切分支再 `checkout`。
+      这条边界不因为"能产字节了"就破掉
+    - **平移模块**：区块是最小搬运单位，平移量只能是 **16 的整数倍**；非整数倍直接拒绝
+      并把"最近可用值"交给 UI 做按钮。**垂直方向不做平移**（整列搬）
 - **世界合并与建筑移植**（`worldmerge.js`）—— 创造存档里搭好的城堡搬进生存存档
   - 干跑（`plan`）与执行（`apply`）**刻意分成两步**：这种工具出错时覆盖的是玩家几百小时的世界，
     所以先把"要动哪些区块、会覆盖掉什么、目标有几处冲突、有几个实体热点、大概多大体积"全摊开
   - 冲突检测（目标同位置已有不同内容）、`skip-existing` 只补空位、搬完**自动复验**（重扫目标比对指纹）
   - **区块与实体成对替换**：只看区块就跳过的话，新搬来的城堡里会残留当地生物与掉落物
-  - ⚠️ 两个限制写在模块头里：区块是**最小搬运单位**（给的方块范围会向外吸附到区块边界）；
-    垂直方向是**整列**搬运，不做 y 裁剪（光照/高度图/方块实体/生物群系都挂在同一个 chunk 上，
-    只搬一段 y 必然把存档搞坏 —— 要裁剪请先在游戏里用结构方块或 WorldEdit 做好）
+  - **区块对齐平移（V5 第二组）**：把选区整体挪到别处，而不是只能原地覆盖
+    - 平移量必须是 **16 的整数倍**（区块是最小搬运单位）。填了别的数**不猜、不四舍五入**，
+      直接拒绝并把最近可用值交给 UI 摆一颗「就用它」的按钮 —— 悄悄改掉用户填的数字比报错危险得多
+    - 整块挪走是 **100% 安全**的：区块内部一切（光照、高度图、生物群系、方块实体、计划刻）
+      都相对区块自洽，只需改**绝对坐标**那几处。所以同步改的是一张明确的清单：
+      `xPos`/`zPos`、实体区块根的 `Position:[cx,cz]`、`block_entities`/`block_ticks`/`fluid_ticks`
+      （≤1.17 是 `TileEntities`/`TileTicks`/`LiquidTicks`）的 x/z、实体的 `Pos` 与 `TileX`/`TileZ`、
+      `Passengers` 递归、`structures.starts` 的 `ChunkX`/`ChunkZ`/`Children`/`BB` 与 `References` 的键
+    - **跨 region 正确**：region 是 32×32 区块，一个目标 region 里的区块可能来自源里 2~4 个 region，
+      所以按**给定区块坐标**分组读，而不是"一个盒子对一个文件"
+    - **目标预检**（`precheckTarget`）：`session.lock` 占用（游戏开着目标存档时写 region 会写坏它；
+      原版写毫秒时间戳并每秒更新，所以时间戳合理就用它，否则退回 mtime）、
+      DataVersion 代差（源 ≥1.18 而目标 <1.18 时源区块有**负 Y 区段**，旧版根本不认识 —— 直接拦下）、
+      目标文件写不进去。有 blocker 时 **apply 默认拒绝**，要显式 `force:true` 才继续
+    - 执行前自动给目标存档打时光机快照，每个被改的 region 文件再留 `.bak`；复验比的是
+      **平移之后的指纹**（拿原始字节去比会把一次完全正确的平移判成全部失败）
+  - **区块状态图**：主进程算好一张逐区块的字符矩阵（`.` 源里没有 / `n` 新建 / `=` 已一致 /
+    `!` 会覆盖 / `-` 跳过 / `x` 损坏），渲染层直接照着画，不用自己推断每格状态
+  - ⚠️ 一个限制写在模块头里：垂直方向是**整列**搬运，不做 y 裁剪（光照/高度图/方块实体/生物群系
+    都挂在同一个 chunk 上，只搬一段 y 必然把存档搞坏 —— 要裁剪请先在游戏里用结构方块或 WorldEdit 做好）
 - **存档地图预览**（`worldmap.js`）—— 把枯燥的 region 文件变成一眼能懂的俯视图
   - 纯本地扫描 `anvil` 层，逐区块解析 NBT，读出顶层方块 / 高度 / 生物群系 / 实体数（实体在
     `Level.Entities`，不能用只数根级 `Entities` 的 walk —— 否则实体数永远是 0）
@@ -108,9 +160,23 @@ CurseForge 返回的 HTML 描述一律剥成纯文本。
   - 支持缩放 / 平移 / 悬停看区块坐标，数据全在内存里，不改动任何存档文件
 - **跨存档统一数据库**（`worlddb.js`）—— 把散落在多个存档里的容器与命名实体汇成一张可检索的总表
   - 一次性扫描整个 `.minecraft/saves`，把每个容器的物品（中文名 / 数量 / 附魔）和命名实体归并建索引
-    （实现为零依赖的扫描索引，不引入 SQLite；纯本地、按需扫描，不需要常驻数据库进程）
-  - 跨存档检索：按物品名 / 实体名 / 「附魔」修饰词秒查「哪个存档里有什么、在哪格坐标」
-  - 全局统计：存档数 / 容器数 / 命名实体数 / 总游玩时长，热门物品 Top 榜、容器最多的存档榜
+    （实现为零依赖的**落盘索引**，不引入 SQLite；纯本地、按需扫描，不需要常驻数据库进程）
+  - **落盘索引 + 指纹增量（V5 第二组）**：索引缓存在 `userData/worlddb` 下，**不写进存档目录**。
+    按 region 文件的 `mtime+size` 指纹比对，第二次扫描只重读变过的文件 —— 一次全量扫描要解压几万个区块，
+    而"只多了一个箱子"的世界通常只有一两个 region 文件会变
+  - **racy timestamp 兜底**："mtime+size 没变"不等于"文件没变" —— 文件可能在写下索引的**同一毫秒**
+    里被改，`mtime` 会一模一样。照抄 git 的处理：`mtime >= 索引写入时刻` 的文件一律重读
+  - **三个维度**：主世界 / 下界 / 末地，`region/` 与 `entities/` 两个来源都扫（1.18 起方块实体在
+    顶层 `block_entities`，≤1.17 在 `Level.BlockEntities`）
+  - **索引面**：物品自定义名、附魔清单（中英对照）、**潜影盒嵌套**（深度 ≤2，含 1.20.5 起
+    `{id,count,components}` 新写法与 `{id:{id,count}}` 堆叠形态）、玩家背包与末影箱（作为伪容器）、
+    **带物品栏的实体**（矿车 / 船）也算容器
+  - **检索 DSL**：`dim:下界` / `save:存档名` / `kind:container|entity` / `near:me,64` / `near:x,y,z,r`
+    （水平距离）/ `ench:锋利` / `exact:stone`（不命中红石）/ `sort:count|dist|name|time` / `limit:` / `page:`，
+    引号里的词当一个整体。**只有白名单 key 才当过滤器**，所以 `minecraft:diamond_sword` 是搜索词而不是语法
+  - 检索串写错时**单独报错**（"检索串有问题：未知的维度"），而不是返回空结果让人反复换词去猜
+  - 全局统计：存档数 / 容器数 / 命名实体数 / 总游玩时长、物品件数与堆数、附魔物品数、命名物品数、
+    维度分布、常见附魔 Top 榜、热门物品 Top 榜、容器最多的存档榜、索引覆盖区块数与损坏区块数
 
 ### 实体清理建议（`entitydoctor.js`）
 
@@ -290,6 +356,62 @@ CurseForge 返回的 HTML 描述一律剥成纯文本。
   也从渲染层搬到了主进程，成了可单测的纯函数
 - 并行多开的正确姿势就是「每个实例绑不同账户」，账户页可以直接下拉配置
 
+### 云端账号与云存档（`pebblecloud.js` / `ipc/cloud.js`）
+
+换台机器不用重新配一遍账户 —— 这是**唯一一个会联网的功能**，所以默认全程不用它也能照常玩。
+
+- **云账号**：注册 / 登录 / 登出，服务端是自建的 Deno Deploy 后端（不在本仓库）。
+  地址可以用环境变量 `PEBBLE_CLOUD_ENDPOINT` 或 `configure({ endpoint })` 指向你自己的部署
+- **账户迁移**：把本机账户配置备份到云端（含各账户的登录令牌），另一台机器上一键恢复。
+  ⚠️ 这份数据里**包含 accessToken / refreshToken**，上传前界面会明确说明 ——
+  不会"顺手就传了"
+- **云存档**：任意 JSON 的 KV 存储（`putBlob` / `getBlob` / `listBlobs` / `deleteBlob`），
+  上面那套账户备份就建在它之上
+- **凭据处理**：
+  - 密码只用于换 token，**不落盘**；输入框用完即清
+  - token 走 `securestore` 的 `secrets.enc`（DPAPI 加密），**只存在于主进程** ——
+    `cloud-status` 返回的登录态快照里没有 token，渲染层拿不到
+  - 系统不支持加密时**拒绝落盘**（不降级写明文），登录态只在内存里活着，界面如实提示"重启后要重新登录"
+  - 老版本误存的明文 token 会在首次读取时自动搬进加密存储，并**把明文那行删掉**
+- **错误分类**（这一路的坑比功能本身多）：
+  - 服务端鉴权中间件跑在**路由之前**，所以 401 有两种含义：请求**带了** token 收到 401 = 登录态失效
+    （自动清 token 并提示重新登录）；**没带** token 收到 401 = 登录接口在说"密码错误"。
+    登录 / 注册请求**刻意不带 Authorization**，从根上避免"已登录时输错密码被报成登录过期"
+  - `fetch` 的 `'fetch failed'` 一律翻译成人话（超时多少秒、DNS 解不到、连接被拒、证书失败…），
+    HTTP 500 明确说"不是你这边的问题"
+  - "测试连接"**一定会真发一次请求** —— 早期版本未登录时会短路返回"连得上"，断网也说你连得上
+
+### 自动更新（`updater.js` / `ipc/update.js`）
+
+自托管：不用 electron-updater，也不绑 GitHub Releases —— 给它一个能返回 JSON 的地址就行，
+静态站点、对象存储、自己的后端都能当更新源。
+
+**清单格式**（`GET` 任意地址，返回 JSON）：
+
+```json
+{
+  "version": "5.0.0",
+  "notes": "更新说明",
+  "url": "https://…/Pebble-Lunchar-5.0.0.exe",
+  "sha256": "dee2385ca7c8f5581b012d1a6baa3ff3321d574d350e519d94066bb2646a9aa0",
+  "size": 79047176,
+  "publishedAt": "2026-10-17"
+}
+```
+
+- **带 `sha256` 才会出现「下载并安装」**；只给了 `url` 就退化成「打开下载页」。
+  拿不到校验值时不硬装 —— 更新器是这程序里最不该被冒充的组件。
+- 下载是流式的，边下边算 SHA-256；先写 `.part`，校验通过才改名。
+  哈希或大小对不上就整个丢掉，不会留下一个"看起来像成品"的 exe。
+- 超时用**无数据超时**（30 秒没收到任何字节才算卡住），不是总超时 ——
+  79MB 在慢网下用总超时必然误杀。
+- 下完点「立即重启安装」：写一个批处理，等启动器退出后覆盖 exe 再拉起来。
+  portable 版取的是 `PORTABLE_EXECUTABLE_FILE` —— 运行时它会被解压到 `%TEMP%`，
+  用 `app.getPath('exe')` 替换的是临时副本，下次双击还是旧版，而且现场一点报错都没有。
+- 下载可以取消；进度条实时走，重开启动器后"已下好待安装"的状态还在。
+
+后端需要加什么，见 `BACKEND-AUTOUPDATE.md`（一个免登录的 `/api/update/latest` + 文件直链）。
+
 ### JVM A/B 调优实验室（`jvmlab.js`）
 
 把「该配多少内存、用哪个 GC」这种玄学问题变成可重复的实测：
@@ -311,13 +433,46 @@ CurseForge 返回的 HTML 描述一律剥成纯文本。
 - 外观：动画开关（V4.1.0 起界面固定纯白，不再有主题与透明度设置）
 - 游戏内设置：直接编辑 `options.txt`（FOV、渲染距离、图像品质、平滑光照）
 - 系统与更新：开机自启、关闭时最小化到托盘、创建桌面/开始菜单快捷方式、界面语言（简中 / English）、
-  更新源与「检查更新」
+  **自动更新**（填更新源 → 检查 → 下载 → 校验 → 重启安装，见下节）
 - Java 运行环境：找不到 Java 时可自动（或手动）下载官方 Temurin，装到启动器自己的目录，
   不改动系统 Java；已下载的可以在设置页删除
 
 ### 其它
 - 日志与崩溃报告查看（`logs/latest.log`、crash-reports）
 - 关于页显示版本信息
+
+## 开源合规
+
+本项目以 MIT 发布，**运行时不依赖任何 GPL / AGPL 代码**。`package.json` 没有 `dependencies`，
+发行版里唯一带进来的第三方运行时就是 Electron：
+
+| 第三方 | 许可 | 用途 | 说明 |
+|---|---|---|---|
+| Electron v31 | MIT | 桌面外壳 | 唯一运行时依赖 |
+| ↳ 内嵌 Chromium / Node.js | BSD-3-Clause / MIT 等 | 渲染与运行时 | 发行包内附带 `LICENSES.chromium.html` 完整第三方声明 |
+| ↳ 内嵌 ffmpeg | LGPL-2.1 | 音视频解码 | 动态链接、未修改，许可声明随上述文件一并附带 |
+| electron-builder / NSIS / TypeScript | MIT / zlib / Apache-2.0 | **仅构建期** | 不进发行包 |
+
+打包工具链（`electron-builder`、`tools/` 下的 NSIS、`typescript`）以及 Tauri 路线用的 Rust 工具链
+全部只在构建时使用，不随应用分发。
+
+核心模块的来路都写在文件头的注释里，可直接核对：
+
+- `nbt.js` / `anvil.js` / `blockstate.js` / `worldver.js` / `worldmerge.js` / `worldmap.js` /
+  `worlddb.js` / `craftplanner.js` / `zipread.js` / `zipwrite.js` —— **全部自研**，
+  按 Minecraft 官方格式与 Minecraft Wiki 的格式说明实现，未复制任何第三方实现。
+- 其中 `blockstate.js`（位打包两代解码）与 `worldver.js` 的三方合并算法是最容易"顺手抄一份"的地方，
+  两者都是照格式文档重写的：解码判据来自**数据本身**（long 个数、填充位是否为 0），
+  不是照搬某个版本的判断顺序；合并的共同祖先用 BFS 走全部父节点，是标准 three-way merge 语义。
+- 未引入 SQLite / libgit2 等 GPL 或 LGPL 组件（世界数据库用的是零依赖的扫描索引，不是 SQLite）。
+- **云端后端**（Deno Deploy 上的 `pebble-backend-deno.ts`）不在本仓库，属于可选的外部服务，
+  不随发行包分发，也不影响不联网时的功能。客户端这一侧（`pebblecloud.js`）自研，只用 Node 内置的 `fetch`。
+  **服务端契约是把测试钉死的**：`tests/cloud.test.js` 覆盖状态码 → 行为的映射，
+  真实返回体是拿一次性账号对线上服务实测锁定的（形状记在 `pebblecloud.js` 文件头）。
+- **合规检查清单**：集成任何新库之前，先读它的 `LICENSE`；只接受 MIT / Apache-2.0 / BSD / ISC / Zlib 这类宽松许可。
+  GPL 系代码只能作为思路参考，**不得复制进本仓库**。
+
+> 变更记录里凡是标注"自研"的模块，都可以按上面的方法原样核对 —— 这条不是口号，是发版时要能自证的。
 
 ## 使用
 
@@ -381,7 +536,7 @@ pebble-lunchar/
 ├── tray.js         系统托盘：菜单结构纯函数 + 最小化到托盘（创建失败自动降级）
 ├── sysconf.js      开机自启 + 桌面/开始菜单快捷方式（shell.writeShortcutLink）
 ├── i18n.js         轻量 i18n：字典 + t() 三级回退，未迁移文案原样显示
-├── updater.js      自托管更新检查：任意 JSON 清单 + 版本比较
+├── updater.js      自托管自动更新：清单检查 + 流式下载 + SHA-256 校验 + 替换重启
 ├── screenshots.js  截图增强：PNG 头解析分辨率 + 按日期归档（绝不覆盖原图）
 ├── javadl.js       Java 自动下载：Temurin API + zipread 解压（含 zip-slip 防护）
 ├── nbt.js          统一 NBT 解析：完整建树 + 跳读 skip + 实体计数 + 编码（含越界检查）
@@ -389,10 +544,13 @@ pebble-lunchar/
 ├── preload.js      contextBridge 安全桥接
 ├── renderer.js     渲染层核心：状态、导航、启动、账户、设置
 ├── pages.js        各功能页：版本、Mod/资源包/光影、存档、截图、账户、调优、日志
-├── index.html      界面结构（顶部功能栏 + 16 个页面）
+├── index.html      界面结构（顶部功能栏 + 17 个页面）
 ├── style.css       纯白 + 蓝绿像素渐变视觉样式（无半透明）
 ├── anvil.js        Anvil region 读写层：头表解析 + 区块读写删 + 批量写回 + 原子写回（世界功能的地基）
-├── worldver.js     世界版本控制：区块级内容寻址对象库 + 增量提交图 + 分支/diff/blame/回滚
+├── blockstate.js   方块状态解码层：位打包两代（跨 long / 不跨 long）+ 1.18 顶层 sections
+│                   （地图 / 方块级 blame / 时间轴回放共用，避免三处解码各自漂移）
+├── worldver.js     世界版本控制完整版：区块级对象库 + 增量提交图 + 分支/diff/blame/
+│                   方块级 blame/时间轴回放/自研三方合并/回滚
 ├── worldmerge.js   世界合并与建筑移植：干跑计划书 + 冲突检测 + 区块实体成对搬运 + 搬完复验
 ├── worldmap.js     存档地图预览：region 逐区块扫描 + 顶层方块/高度/群系/实体数 + Canvas 分层渲染
 ├── worlddb.js      跨存档统一数据库：saves 全量扫描建索引 + 物品/实体检索 + 全局统计
@@ -401,7 +559,7 @@ pebble-lunchar/
 ├── livemetrics.js  运行时指标：日志（卡顿/GC）+ 伴随 Mod JSONL → 曲线与健康度（不假装有 FPS）
 ├── accountbook.js  多账户簿：账户列表 / 活动账户 / 实例绑定（纯函数，含旧格式迁移）
 ├── i18n-ui.js      渲染层文案字典（renderer.js）
-├── i18n-pages.js   页面文案字典（pages.js，283 处）
+├── i18n-pages.js   页面文案字典（pages.js，343 处）
 ├── make-exe.js     NSIS 单文件打包（含编译前后的代码签名钩子）
 ├── scripts/        工程脚本：sign.js（签名）/ dev-cert.ps1（开发证书）/ sac-probe.ps1（拦截检测）
 ├── SIGNING.md      代码签名说明：为什么需要、证书怎么选、怎么签怎么验
@@ -453,7 +611,7 @@ python make-icon.py
 ```bash
 npm install        # 安装依赖（postinstall 会自动重放 node_modules 补丁）
 npm start          # 本地运行
-npm test           # 单元测试：33 个套件（含 NBT、Anvil、世界版本控制、世界合并、世界地图、跨存档数据库、性能诊断、自动调参、Mod 更新评估、汉化补全、整合包向导、ZIP 写入、实体清理、合成规划、运行时指标、多账户簿、启动参数、IPC 契约、IPC 运行时、无头装配、i18n）
+npm test           # 单元测试：39 个套件（含 NBT、Anvil、世界版本控制、世界合并、世界地图、跨存档数据库、性能诊断、自动调参、Mod 更新评估、汉化补全、整合包向导、ZIP 写入、实体清理、合成规划、运行时指标、多账户簿、启动参数、自动更新、打包白名单、IPC 契约、IPC 运行时、无头装配、i18n）
 npm run typecheck  # JSDoc 类型检查（tsc --checkJs，不产出文件）
 npm run test:e2e   # 端到端冒烟：真实 Electron 里跑一遍新增 IPC
 npm run dist       # 打包 portable exe → dist/Pebble-Lunchar.exe（内含代码签名步骤）
@@ -510,6 +668,24 @@ USE_HARD_LINKS=false node node_modules/electron-builder/cli.js --win --x64 --dir
 node make-exe.js
 ```
 
+> ⚠️ **两步必须连着跑，第 2 步不会重新打包代码。**
+> `make-exe.js` 只做「NSIS 打包 + 签名」，它读的是**已经存在的** `dist/win-unpacked`。
+> 只跑第 2 步的话，会得到一个**签名有效、能启动、但内容是一个月前的** exe —— 没有任何报错。
+> 本轮就踩过一次：`dist/win-unpacked/resources/app.asar` 还是旧的，新模块根本不在包里。
+> **交付前一定要验一下包里的文件**（下面这段能直接跑）：
+>
+> ```bash
+> node node_modules/@electron/asar/bin/asar.js list dist/win-unpacked/resources/app.asar | sort
+> # 新增模块（如 blockstate.js）必须出现在列表里；不在就说明漏了 build.files 或没重跑第 1 步
+> ```
+
+> 不想每次删旧产物（删除守卫会拦）时，按发版序号换个输出目录，再用 `PL_SRC` 指过去：
+>
+> ```bash
+> USE_HARD_LINKS=false node node_modules/electron-builder/cli.js --win --x64 --dir -c.directories.output=dist8
+> PL_SRC=dist8/win-unpacked node make-exe.js
+> ```
+
 > 签名由 `make-exe.js` 自动调用 `scripts/sign.js`。没配证书时会打印获取证书的指引并跳过，
 > 不会阻塞打包；想强制跳过用 `SKIP_SIGN=1`。
 > **打包前务必退出正在运行的启动器和已安装副本** —— 文件被占用会让签名失败
@@ -529,6 +705,9 @@ node make-exe.js
 >   打完后 `--win --x64 --dir` 可一次通过（含图标）。
 > - `npx` 在本机不可用，需直接 `node node_modules/electron-builder/cli.js`。
 > - 打包前 `dist/win-unpacked` 必须清空，否则 electron-builder 的 `emptyDir` 会触发沙箱批量删除守卫而失败。
+>   **但清不掉时不要跳过去跑第 2 步**（那会用到旧产物）；换个输出目录 + `PL_SRC` 更稳。
+> - **新增模块要记得加进 `package.json` 的 `build.files` 白名单**。漏了不会报错：
+>   开发时（`npm start` 直接读源码目录）一切正常，只有打包后的 exe 会在 `require` 时崩。
 > - NSIS 脚本用 `File /r /x debug.log /x run.cmd "src\*"`，以排除 electron-builder 留下的临时文件。
 
 ## Lite 精简版
@@ -536,21 +715,71 @@ node make-exe.js
 标准版是「全都给你」，Lite 版是「只给能开游戏的那部分」。两者**共用同一份源码**，
 靠构建配置分流 —— 不存在第二套需要同步维护的代码。
 
-| | 标准版 | Lite |
+### 两条路线（当前推荐 Tauri 版）
+
+Lite 有两套实现，产物都在 `dist-lite*/`，**互不影响**，可以只挑一条走：
+
+| | Electron 路线 | **Tauri 路线（当前 Lite 产物）** |
 |---|---|---|
-| 页面 | 16 个 | **5 个**（启动 / 版本 / 账户 / 设置 / 关于） |
-| 单文件安装包 | 75.3 MB | **~20 MB** |
-| 解包后 | 260 MB | 204 MB |
-| 语言包 | 55 个 | **2 个**（zh-CN / en-US） |
-| 图形后端 | 完整 | 去掉 SwiftShader / ANGLE |
-| 账户 / 设置 / Java | 与标准版共用（userData 同名，不用重新登录） | |
+| 目录 | 本仓库根目录（`npm run lite`） | `lite-tauri/`（`npm run lite:tauri`） |
+| 界面 | `index.lite.html`（从 `index.html` 现裁） | `lite-tauri/ui/`（独立一份） |
+| 后端 | Node（`ipc/*.js`） | Rust（`lite-tauri/src/*.rs`） |
+| 单文件 | ~64 MB | **3.07 MB** |
+| 运行时 | 自带 Chromium | 系统 WebView2 |
 
-**裁掉**：Mod / 资源包 / 光影 / 存档 / 截图管理、实例与迁移、世界工具、性能诊断、
-Mod 工具、JVM 调优实验室、运行时监控、Mod 商店、存档时光机、并行多开。
-**留下**的都是「没有就开不了游戏」的：选版本 → 登账户 → 填内存 → 点启动，
-外加官方版本下载与 Forge/Fabric/Quilt/NeoForge/OptiFine 安装。
+Electron 版那 64 MB 里 Chromium 占 84%，砍页面/砍语言包只省下不到 1 MB。
+Tauri 版换掉运行时归属，体积直接掉到 1/20 —— 见下面的体积表。
 
-### 构建
+**Tauri 版体积**：
+
+| | 上一版 Lite（Electron） | 本版（Tauri） |
+|---|---|---|
+| 单文件 exe | 64.1 MB | **3.07 MB** |
+| 分发目录合计 | ~268 MB（含 `win-unpacked/` 204 MB） | **3.1 MB** |
+| 需要自带浏览器内核 | 是 | 否（用系统 WebView2） |
+
+### 构建（Tauri 路线）
+
+```bash
+npm run lite:tauri           # 编译 Rust + 覆盖 dist-lite7/Pebble-Lunchar-Lite.exe
+npm run lite:tauri:verify    # 上面 + 契约对账 + 启动参数核验 + 界面逐页核验
+npm run lite:tauri:ui        # 单独打开前端预览台（调界面用）
+npm run lite:tauri:contract  # 只跑前后端命令 / 字段静态对账
+npm run lite:tauri:contract:self   # 只跑检查器自检
+node lite-tauri/preview-ui.js account   # 指定页：launch|versions|account|settings|about
+```
+
+> `lite-tauri/build.rs` 只调 `tauri_build::build()`；`scripts/lite-tauri-build.js`
+> 负责找 cargo、配 MSVC/SDK 的 `LIB`/`INCLUDE`、编译、拷到 `dist-lite7`。
+> 本机 rustup 装在 D 盘、`CARGO_HOME/bin/cargo.exe` 是个 0 字节代理，
+> 所以脚本会自己去 `~/.rustup/toolchains/*/bin/` 找真身（详见脚本注释）。
+
+### 验证（四层，都能单独跑）
+
+| 脚本 | 覆盖 | 现状 |
+|---|---|---|
+| `lite-tauri/check-contract.js` | **前后端契约静态对账**：invoke 的命令是否注册、入参名 camelCase↔snake_case、返回值字段与数组元素字段是否存在 | **79 项全过** |
+| `lite-tauri/check-contract.js --selftest` | 检查器**自检**：用构造的坏样本验证它真的会报错 | **12 项全过** |
+| `lite-tauri/verify-lite.js` | 启动命令行拼装：classpath、natives 解包、Forge `inheritsFrom` 合并、离线 UUID、占位符替换、架构过滤 | **64 项全过** |
+| `lite-tauri/preview-ui.js` | 界面真实渲染：用项目自带 Electron 当 Chromium 加载 `ui/`，注入 `__TAURI__` 桩件，逐页断言行高/样式/数据绑定 | **5 页 68 项全过** |
+| `lite-tauri/probe-ui.js` | 活体进程的 DOM + IPC（走 WebView2 远程调试端口） | 需要非沙箱环境 |
+
+> **为什么契约要单独查一层**：Tauri 只把**入参**做 camelCase→snake_case 转换，
+> **返回值原样不动**。所以 Rust 结构体字段 `default_mc_dir` 在 JS 里就要读
+> `defaultMcDir`，写成 `default_mc_dir` 得到的是 `undefined` —— 不报错、不崩溃、
+> 界面照常打开，只是那几行字空着。前后端靠字符串约定，编译器一个都管不了。
+>
+> **为什么检查器还要自检**：这套检查器自己踩过三次「不报错、只是静默失效」——
+> 正则吃括号把参数丢了、只认 `pub struct` 于是私有结构体全被跳过、正则字面量
+> 里的引号把作用域扫描弄崩。失效的检查器照样打印一片 `ok`，所以 `--selftest`
+> 用构造的坏样本反过来验证它**确实会报错**，缺了它那些 `ok` 没有可信度。
+
+> 界面核验为什么不能靠截屏：WebView2 用 DirectComposition 合成，
+> 外部的 `BitBlt`（PIL `ImageGrab`）和 `PrintWindow` **都抓不到内容**，
+> 截出来是全黑或全白，会把「能跑」误判成「白屏」。
+> `preview-ui.js` 走渲染进程自己吐的位图，`probe-ui.js` 走 CDP，才算数。
+
+### 构建（Electron 路线，保留）
 
 ```bash
 npm run lite:front     # 从 index.html 裁出 index.lite.html（只留 5 页）
@@ -601,7 +830,10 @@ PL_SRC=dist-lite/win-unpacked PL_OUT=dist-lite/Pebble-Lunchar-Lite.exe \
 | 内容安全策略 | `index.html` 的 CSP：`default-src 'self'`，禁用 `object-src`/`frame-src`/`base-uri`/`form-action`；`img-src` 放开 `file:` 以显示本地截图与 pack.png |
 | 外部链接 | 一律走 `shell.openExternal` 用系统浏览器打开，不在主窗口 `loadURL` 外部页面 |
 | **凭据存储** | 微软 `refresh_token`、外置登录 `accessToken` 等敏感字段用 Electron `safeStorage`（Windows = **DPAPI**，密钥绑定当前系统用户）加密后写入 `%APPDATA%\<应用名>\accounts.enc`。**不再明文存 localStorage**；历史明文会在首次启动时自动迁移并删除 |
-| 加密不可用时 | 只保存公开字段（名称/UUID），**敏感字段直接丢弃**并提示重新登录，绝不降级为明文 |
+| **云端凭据** | 云账号的登录 token 同样走 `safeStorage`（存在 `secrets.enc`，与账户分开），**只在主进程里使用**，`cloud-status` 返回给渲染层的快照里没有 token。密码不落盘 |
+| **联网的地方就两处** | ①「云端」页：必须由用户主动登录 / 备份，用户名密码发往你自己的后端地址（可用 `PEBBLE_CLOUD_ENDPOINT` 覆盖），「测试连接」只发一次 `GET /api/blob`；② **自动更新**：只在用户点「检查更新」时拉一次清单，下载也只在点「下载并安装」之后发生。其余功能全程本地，不会偷偷联网 |
+| **更新包校验** | 清单里的 `sha256` 是硬门槛：没给就只显示「打开下载页」、不自动装；给了但下载后对不上，文件当场删掉。替换 exe 前还要过大小校验 |
+| 加密不可用时 | 只保存公开字段（名称/UUID），**敏感字段直接丢弃**并提示重新登录，绝不降级为明文；云 token 同理——存不住就只留内存并如实告知 |
 | **下载完整性** | 所有文件比对官方 sha1（详见「技术要点」），不匹配即删除换源重下 |
 | 崩溃诊断 | 纯本地正则规则库，不上传任何数据、不调用外部 API |
 
@@ -633,7 +865,7 @@ PL_SRC=dist-lite/win-unpacked PL_OUT=dist-lite/Pebble-Lunchar-Lite.exe \
   NBT 单测 40 项、JSDoc 类型检查（`tsc --checkJs`，零错误）、
   IPC 静态契约测试 + 无头装配测试、GitHub Actions CI
 
-- 第九批（覆盖率）：pages.js 文案全量迁 i18n（用 TypeScript 解析器定位字面量，283 处；
+- 第九批（覆盖率）：pages.js 文案全量迁 i18n（用 TypeScript 解析器定位字面量，343 处；
   手写词法扫描会在「模板嵌模板」「HTML 里的引号」「正则字面量」上错位）、新增 `i18n-pages.js` 字典、
   渲染层与页面层一并纳入 `tsc --checkJs`（零错误）、e2e 补关键路径断言
   （13 页导航 / 设置读写 / 截图整理 / 启动 IPC / 关于页版本）
@@ -715,9 +947,127 @@ PL_SRC=dist-lite/win-unpacked PL_OUT=dist-lite/Pebble-Lunchar-Lite.exe \
     两个子页签、「性能」页加「运行时监控」、「账户」页加「实例账户绑定」
   - 新增 `tests/ipc-v4.test.js`：不带 Electron 手工装配 ctx，把 4 个新域的每个 channel
     真调一遍 —— 静态契约测试只扫 channel 有没有对齐，抓不到「跑起来才炸」
-  - 全量回归（33 套单测）+ 类型检查零错误
+  - 全量回归（35 套单测）+ 类型检查零错误
   - 单测：entitydoctor 56 项 + craftplanner 65 项 + livemetrics 62 项 + accountbook 62 项
-    + IPC 运行时 36 项
+    + IPC 运行时 38 项
+
+- 第十六批（V5 里程碑一·世界版本控制完整版）：
+  目标：把「分支 / 区域级 diff」补齐成完整版 —— **方块级 blame、时间轴回放、自研三方合并**。
+  合规要求是"避免 GPL 代码污染"，所以这三块与合并算法全部照格式文档自研（见 [开源合规](#开源合规)）。
+
+  - 新增 `blockstate.js`：**方块状态解码层**，把三处解码（地图 / 方块级 blame / 时间轴回放）
+    收到一份实现上，避免各自漂移。这里踩到两个**静默**缺陷（不报错、只是结果错）：
+    - 1.16（20w17a）起位打包从"索引可跨 long"改成"不跨 long"。旧实现只写了跨 long 那份，
+      于是 1.16+ 里 5/6/7/9 位宽的区块会解出**合法但错位**的方块名 —— 地图颜色整体偏掉。
+      判据不能用"解出来的索引越不越界"（错解码器的索引全都落在调色板范围内，越界数为 0），
+      而是看**数据本身**：long 个数对不上的那一边直接排除（1.16 更新日志里 5 bit 从 320 涨到 342 longs，
+      这 22 个 long 的差就是硬信号），再用"填充位必须全为 0"二次确认，DataVersion 只作最后兜底
+    - 1.18 把 `Level.Sections` 拍平成了顶层小写 `sections`，且 `Y` 可以为负。旧代码只读 `Level.Sections`，
+      于是 1.18+ 存档的地图整片空白、也不报错
+    - 顺带修掉 `chunkBiome` 的一条死分支：`Level.Biomes` 被 nbt.js 解成 **Int32Array**，
+      而 `Array.isArray(Int32Array)` 是 `false`，"扁平 int 数组"那条路在真实区块上从来没进过
+  - `worldver.js` 新增 **方块级 blame**（`blameBlock`）：给世界坐标回答"这一格是谁改的"。
+    关键在归属规则 —— 必须归到**最先把它变成现在这个状态**的那次提交。从新往旧扫、把连续相同状态
+    归并成一段、取该段里最老的那次提交；只动了旁边的方块时状态没变，那种提交不该出现
+  - `worldver.js` 新增 **时间轴回放**（`timeline` / `frame`）：帧列表**由旧到新**（滑块正着拖就是沿时间前进），
+    单帧给 16×16 层的方块名（索引 `z*16+x`），颜色由主进程按 `worldmap.blockColor` 映射后一并返回 ——
+    渲染层不再自带一份配色表，两份表迟早走偏
+  - `worldver.js` 新增 **自研三方合并**（`mergePlan` 只读 / `mergeApply` 执行）：
+    - 共同祖先走**全部父节点**（含合并父）。只看第一父链会退化到根提交，两侧自开始以来的改动会被全部误判成冲突
+    - 合并提交的增量必须**相对我方**存（`indexOf` 只沿第一父链回溯）；存成相对对方会让重建出的状态整体错位且不报错
+    - 冲突往下判到**方块级**：同一个区块两边都改了，但改的是不同方块时判为"不相交"，不吓唬人
+    - ⚠️ **已知边界**：合并只写版本库、不生成新区块字节，冲突区块只能"整个区块取某一侧"
+      （写入端按 JS 值反推 NBT 类型，`LIST of SHORT` 会被写成 `LIST of INT`，游戏读这种区块直接报错）。
+      代价是真实的数据丢失，所以**必须量化报出来**：`conflicts[].dropped` / `droppedSample`
+      逐格列出"按这个落点会丢掉哪些方块改动"，`stats.droppedBlocks` 给总和，
+      提交记录里也留着 `droppedBlocks`；默认策略有任何冲突就拒绝执行，不"默默按某一侧赢"
+  - IPC：`ipc/world.js` 新增 5 个 channel（`world-ver-blame-block` / `-timeline` / `-frame` /
+    `-merge-plan` / `-merge-apply`）；`merge-apply` 单独包一层，因为 `safe()` 会把错误压成
+    `{ok:false,error}`，而合并冲突必须把**计划书**一起带回渲染层
+  - 界面：「世界」页新增**「回放与合并」**子页签 —— 方块坐标 → blame 历史列表（点一条就把画布切到那版）、
+    时间轴滑块 + 上/下一帧 + 「只标出这一步改动的格子」（与上一帧逐格对照）、16×16 像素画布
+    （悬停看方块名、点一格就把坐标带过去）、分支合并面板（我方/并入/冲突策略 + 预览 + 执行）
+  - 单测：`blockstate` 40 项 + `worldver5` 32 项 + `worldmap` 回归 3 项 + `ipc-runtime` 的 V5 装配 6 项
+  - 全量回归（35 套单测）+ 类型检查零错误 + e2e 冒烟补一整段 V5（Node 侧写区块 + 渲染层走真 IPC + 真点按钮）
+
+- 第十七批（V5 里程碑二·世界合并可以整区块写出 / 跨存档统一数据库）：
+  目标：拆掉里程碑一那两个"只能原地覆盖"的限制，把"搬一栋房子"做成真能用的功能；
+  同时把跨存档检索从"扫一遍"做成"有索引、查得准"。合规要求仍是**全部自研**（见 [开源合规](#开源合规)），
+  这一批仍然是**零依赖** —— 只用 Node 内置模块。
+
+  - `nbt.js` 新增**类型旁路表**（`newTypes()`），这是整批的地基：
+    - 三张表 `comp`（字段原名类型）/ `list`（LIST 元素类型）/ `node`（节点整体类型）。
+      解析时记账，写回时优先级是「该字段原名记的类型 → 该节点在 node 表里的类型 → 按 JS 值推断」
+    - 治的是三处**静默**类型改写：`PostProcessing` 是 LIST of SHORT（值全 0，按值推断会写成 LIST of INT，
+      游戏读这种区块直接抛异常）；实体 `Pos` 是 LIST of DOUBLE（值恰好整数时会被写成 INT）；
+      `LONG_ARRAY` 在 JS 里就是普通 Array，和 LIST 无法区分
+    - **使用约束（写在这里，因为它不报错）**：改数组内容**原地改**（`arr[i]=v` / `push` / `length=0`）；
+      换新数组对象必须自己登记 `types.node`，否则类型就丢了
+    - 顺带修掉一个真 bug：位打包交叉读时 `readBigInt64BE` 出来的有符号值做 `>>` 会**补 1**，
+      污染下一个 long。4bit/8bit 的 off 永远是 4 的倍数、到不了 63，所以老测试怎么测都测不出来 ——
+      修好后回退验证有 3 条测试变红，说明它一直潜伏着
+  - `worldver.js` `mergeChunkBytes`：真的产出"两侧改动都保留"的区块字节。两道硬闸门、默认只拦会丢东西的、
+    光照风险逐格上报，细节见上文「完整版」一节。`dropped` 要按 `mr.stats.conflict` **重算**，
+    不能看到 `mr.ok` 就清零
+  - `worldmerge.js` 重写（377 → 830 行）：区块对齐平移 + 坐标同步 + 目标预检 + 指纹矩阵。
+    踩到的坑都是"读错文件还不报错"这一类：平移会跨 region（一个目标 region 的区块可能来自源里 2~4 个
+    region，原来"一个盒子对一个文件"的写法会静默读错）；实体区块根用的是 `Position:[cx,cz]`
+    而不是 `xPos`/`zPos`（用区块的造法去改它会静默什么都不改）；`canWriteFile` 拿目录当文件传时
+    Windows 上 `openSync(p,'r+')` 不报 EISDIR（改成先 `statSync().isDirectory()`）
+  - `worlddb.js` 重写（289 → 900 行）：三 × 两（维度 × region/entities）扫描 + 落盘指纹增量 + 索引面扩展 +
+    检索 DSL。两个"看不见东西"的坑：`isContainerId` 的染色潜影盒正则字符类写成 `[a-z]+` 会让
+    16 种染色潜影盒里 **12 种**命中不了（颜色名带下划线，`light_blue` 正好是最常用的那几种）；
+    1.20.5 起物品从 `{id,Count,tag}` 变成 `{id,count,components}`，只认老写法就是**静默索引不到**
+  - `ipc/world.js`：world-db 段重写（`ensureIndex` + 落盘缓存 + `searchError` 与 `r.error` 分开）；
+    `world-merge-plan` / `-apply` **不再走 `safe()`** —— 平移量不对齐时抛的错里带着 `nearest`，
+    包装层压一下就没了，UI 就只能干说一句"错误"
+  - 界面：「区域搬运」页新增平移输入（`step=16`，说明写清"只能填 16 的倍数、垂直方向不动"）、
+    维度选择（原来写死主世界，下界/末地的建筑搬不了）、`wm-force` 复选框、
+    **区块状态图**画布（悬停看"这个目标区块会怎么被处理"）、`nearest` 的「就用它」按钮、
+    预检 blocker 用【必须先解决】前缀单独列；
+    「全局检索」页新增 DSL 提示、检索串错误单独报（琥珀色，与"操作失败"区分）、分页信息、
+    「强制重扫」复选，统计面板补物品件数/附魔数/维度分布/缓存命中
+  - 单测：`worldmerge` 58 项 + `worlddb` 39 项 + `ipc-runtime` 新增 3 项（`nearest` 透传、
+    计划书字段完整、+16 格实搬并复验）
+  - 把 `worldver5` 与 `nbt-typed` 两套补进 `npm test` 链（此前漏了，跑不到）；类型检查从 **28 个错误清到 0**
+
+- 第十八批（云端：云账号 + 云存档，对接账户迁移）：
+  从「加两个文件」开始，落点却是**一层没被发现过的打包漏洞** —— 全部产出都在下面。
+
+  - **打包白名单漏洞（整批里最要紧的一条）**：`package.json` 的 `build.files` 是白名单，
+    `ipc/**/*` 覆盖了 `ipc/cloud.js`，但**根目录的 `pebblecloud.js` 不在名单里**。
+    而 `ipc/cloud.js` 顶层就 `require('../pebblecloud')`，`ipc/index.js` 的 `registerAll`
+    又**刻意不 catch**（怕把域内部的真 bug 吞成"功能静默消失"）——
+    后果不是"云端功能不可用"，是**打包版整个应用起不来**。
+    核过 4.3.0 的 asar：23 个 `ipc/*.js` 都在，`pebblecloud.js` 不在，正好印证
+  - **新增 `tests/packfiles.test.js`**：把 `scripts/lite-verify.js` 那套「依赖闭包 ↔ 白名单」对账
+    搬给**标准版**（此前只有 Lite 侧有，标准版一直是空的）。7 条断言：
+    闭包全在白名单内、白名单里的文件都真实存在（拼错=静默少打一个文件）、
+    `DOMAINS` 里每个域文件都在、无重复项、磁盘上的域都已登记。
+    **回退验证过**：把 `pebblecloud.js` 从白名单里拿掉，它立刻报"漏登记 1 个：pebblecloud.js"
+  - `pebblecloud.js` 重写：错误分类（网络不可达 / 超时 / 非 JSON / 5xx，以及 ENOTFOUND、ECONNREFUSED、
+    ECONNRESET、证书失败各自给人话）、
+    token 改走 `securestore` 的 `secrets.enc`（DPAPI）而**不是明文 JSON**、
+    系统不支持加密时拒绝落盘只留内存、老版本误存的明文 token 自动迁移并删掉明文行、
+    端点可用环境变量覆盖、`app.getPath` 从模块加载期移到 `configure()`（无头测试才能 require 它）
+  - **401 的两种含义**（实测锁定的关键判据）：服务端鉴权中间件跑在**路由之前** ——
+    带**有效** token 访问不存在的路径返回 `404 not found`，带**垃圾** token 才是 `401 unauthorized`。
+    所以「带 token 的 401」= 登录态已死（自动清 token 并提示重登）；
+    「不带 token 的 401」= 登录接口在说"密码错误"。修法不是加特例，而是**登录/注册请求根本不带 Authorization**
+  - `ipc/cloud.js` 全部包上错误码透传（`safe()` 会把 `e.code` 丢掉，而界面要靠它区分
+    「登录过期 / 没登录 / 网络不通」）；⚠️ 包装器**必须返回 handler 而不是包装 `ipcMain.handle` 的调用** ——
+    `tests/ipc-contract.test.js` 是静态正则扫 `ipcMain.handle('通道名'` 的，包一层间接就扫不到，
+    会把 12 个通道全判成"调用了但没注册"（实测踩过）
+  - 界面：新增**「云端」页**（第 17 页）—— 登录/注册/登出/测试连接、账户配置备份↔恢复、云存档列表与删除；
+    「测试连接」修掉一个真 bug：早期实现未登录时走 `requireLogin()` 直接短路返回"云端可达"，
+    **一个请求都没发**，断网点它也说连得上
+  - 隐私：token 不出主进程（`cloud-status` 快照里没有它）；密码不落盘、输入框用完即清；
+    上传账户配置前明确告知含登录令牌。README 的「安全」表补了云端凭据与"唯一的联网功能"两行
+  - 单测：`cloud` 62 项（状态码→行为、token 落盘与迁移、加密不可用降级、探活、端点覆盖）
+    + `packfiles` 7 项；`ipc-runtime` 补 `cloud-status` 真实调用断言。
+    `scripts/make-lite.js` 的页面计数抽成 `PAGE_COUNT` 常量（17），加页面时会当场 die 而不是静默裁错
+  - 后端契约用**一次性账号**实测锁定（`register` 只回 `{ok:true}` 不发 token，所以客户端注册后要接着登一次），
+    形状与全部错误码写在 `pebblecloud.js` 文件头，后续对账不用再连外网
 
 **计划中（均为零成本/纯本地）**：
 
@@ -725,11 +1075,15 @@ PL_SRC=dist-lite/win-unpacked PL_OUT=dist-lite/Pebble-Lunchar-Lite.exe \
 |---|---|---|
 | 15 | V4 第五组（收尾） | 创意工具：3D 皮肤编辑器 / 红石电路模拟器（已完成，V4.1.0 因包体过大移除） |
 | 16 | V4.1.0 | 界面重做：纯白底 + 蓝绿像素渐变、功能栏移到顶部、窗口放大到 1440×900、版本方块图标 |
-| 17 | 下一组 | 轻量版（lite）：把移除的创意工具做成可选组件，而不是塞回主包 |
+| 17 | 轻量版（lite） | 把移除的创意工具做成可选组件，而不是塞回主包 |
+| 18 | V5 里程碑二（已完成） | **保类型的 NBT 写入端** → 世界合并整区块写出（含区块对齐平移）；跨存档统一数据库（落盘增量索引 + 检索 DSL） |
+| 19 | 云端（已完成） | 云账号 + 云存档（对接账户迁移）；新增「云端」页；打包白名单契约测试 |
+| 20 | V5 里程碑三（v5 暂缓） | 性能诊断进阶；离线合成规划器；3D 皮肤编辑器；红石电路模拟器（可集成宽松许可库） |
+| 21 | 自动更新（已完成） | 检查 → 流式下载 → SHA-256 校验 → 替换重启；存档深度自检（字节级）；清掉 V4.1.0 遗留的文档僵尸条目 |
 
-> **关于自动更新**：这里做的是「喂一个 JSON 地址就能用」的自托管方案——
-> 静态站点、网盘直链、对象存储都能当更新源，格式为
-> `{ "version": "1.1.0", "notes": "…", "url": "https://…/Pebble-Lunchar.exe" }`。
+> **关于自动更新**：自托管「喂一个 JSON 地址就能用」——静态站点、网盘直链、对象存储、
+> 自己的后端都能当更新源。清单里带上 `sha256`（和可选的 `size`）就能一路下到底并自动安装；
+> 只有 `url` 就退化成「打开下载页」，绝不硬装一个校验不了的文件。
 > 没有用 electron-updater，因为它强绑 GitHub / 对象存储这类发布渠道，不适合自己发行。
 > 真要换过去，只需替换 `updater.js` 这一层。
 >

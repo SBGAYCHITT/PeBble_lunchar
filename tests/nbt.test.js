@@ -69,7 +69,10 @@ eq('超 int32 编码为 LONG', rt.big, 99999999999);
 eq('小数编码为 DOUBLE', rt.f, 1.5);
 
 check('根名保留', nbt.serialize('Hello', {}) && nbt.parse(nbt.serialize('Hello', {})).name === 'Hello');
-throws('LIST 元素类型不一致 → 报错', () => nbt.serialize('r', { xs: [1, 'a'] }), /类型不一致/);
+// 措辞从「类型不一致」改成了「第 N 项放不进 XXX」：后者能定位到具体哪一项，
+// 而且在「SHORT 字段里塞了超范围的值」这种场景下才说得通 —— 那不是类型不一致，
+// 是装不下。（那条场景在 nbt-typed.test.js 里测）
+throws('LIST 元素类型不兼容 → 报错并指出位置', () => nbt.serialize('r', { xs: [1, 'a'] }), /第 1 项放不进 INT/);
 throws('无法推断的字段 → 报错', () => nbt.serialize('r', { bad: null }), /无法推断/);
 
 /* ---------- 压缩识别 ---------- */

@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>Pebble Lunchar Lite</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- data-tauri-drag-region 是无边框窗口唯一的拖动方式（decorations:false 时
+         系统标题栏没有，只能自己在元素上挂这个属性）。它只作用于挂了属性的元素本身，
+         子元素不继承，所以 .win-controls 里的按钮照样能点。 -->
+    <div id="titlebar" class="drag" data-tauri-drag-region>
+      <div class="logo" data-tauri-drag-region>
+        <img class="logo-mark" src="assets/logo.png" alt="PB" draggable="false" />
+        <span class="logo-text">PEBBLE <em>LUNCHAR</em></span>
+        <span class="logo-badge" id="nav-title">启动</span>
+        <span class="logo-badge lite">LITE</span>
+      </div>
+      <div class="win-controls no-drag">
+        <button id="btn-min" class="win-btn" title="最小化">─</button>
+        <button id="btn-max" class="win-btn" title="最大化">□</button>
+        <button id="btn-close" class="win-btn close" title="关闭">✕</button>
+      </div>
+    </div>
+
+    <div id="body">
+      <nav id="nav">
+        <button class="nav-item active" data-page="launch"><span class="ni">▶</span><span>启动</span></button>
+        <button class="nav-item" data-page="versions"><span class="ni">⛏</span><span>版本</span></button>
+        <button class="nav-item" data-page="account"><span class="ni">☺</span><span>账户</span></button>
+        <button class="nav-item" data-page="settings"><span class="ni">⚙</span><span>设置</span></button>
+        <button class="nav-item" data-page="about"><span class="ni">?</span><span>关于</span></button>
+      </nav>
+
+      <main id="main">
+        <!-- ============ 启动 ============ -->
+        <section class="page active" id="page-launch">
+          <div class="col-left">
+            <div class="card profile">
+              <div class="avatar" id="avatar">?</div>
+              <div class="pmeta">
+                <div class="pname" id="acc-name">未登录</div>
+                <div class="ptype" id="acc-type">离线模式</div>
+              </div>
+            </div>
+            <div class="card fill">
+              <div class="card-head"><span>本地版本</span><button id="btn-refresh" class="ghost-btn">⟳ 刷新</button></div>
+              <div id="version-list" class="list scroll"></div>
+            </div>
+          </div>
+          <div class="col-right">
+            <div class="card status">
+              <div class="status-row"><span class="status-dot" id="status-dot"></span><span id="status-text">就绪</span></div>
+              <div class="java-info" id="java-info">检测 Java…</div>
+            </div>
+            <div class="card quick">
+              <div class="card-head"><span>快捷设置</span></div>
+              <div class="qrow"><label>内存</label><input id="mem" type="range" min="1" max="16" step="1" value="4" /><span id="mem-label">4 GB</span></div>
+              <div class="qrow">
+                <label>宽</label><input id="win-w" class="inp tiny" type="number" value="854" />
+                <label>高</label><input id="win-h" class="inp tiny" type="number" value="480" />
+                <label class="chk"><input id="fullscreen" type="checkbox" />全屏</label>
+              </div>
+              <div class="qrow"><label>玩家名</label><input id="player-name" class="inp" maxlength="16" placeholder="离线玩家名" spellcheck="false" /></div>
+            </div>
+            <div class="card log-card fill">
+              <div class="card-head"><span>运行日志</span><button id="btn-clearlog" class="ghost-btn">清空</button></div>
+              <pre id="log-view" class="scroll"></pre>
+            </div>
+            <div class="row">
+              <button id="btn-launch" class="launch-btn"><span class="launch-icon">▶</span> 启动游戏</button>
+              <button id="btn-kill" class="ghost-btn danger" disabled>结束进程</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ 版本 ============ -->
+        <section class="page" id="page-versions">
+          <div class="col-left">
+            <div class="card fill">
+              <div class="card-head"><span>已安装版本</span><button id="btn-vrefresh" class="ghost-btn">⟳</button></div>
+              <div id="installed-list" class="list scroll"></div>
+            </div>
+          </div>
+          <div class="col-right">
+            <div class="card">
+              <div class="card-head"><span>版本详情</span></div>
+              <div id="ver-detail" class="tip">左侧选一个版本。</div>
+            </div>
+            <div class="card">
+              <div class="card-head"><span>目录</span></div>
+              <div class="row wrap">
+                <button class="ghost-btn" data-open="mc">.minecraft</button>
+                <button class="ghost-btn" data-open="versions">versions</button>
+                <button class="ghost-btn" data-open="libraries">libraries</button>
+                <button class="ghost-btn" data-open="assets">assets</button>
+                <button class="ghost-btn" data-open="logs">logs</button>
+                <button class="ghost-btn" data-open="mods">mods</button>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-head"><span>关于下载</span></div>
+              <p class="tip">
+                这一版<strong>不含下载器</strong>：只做「读取本地版本 → 启动游戏」这一件事，
+                所以整个程序只有几 MB。要装新版本，用官方启动器或别的启动器装一次，
+                装好的版本会自动出现在左边的列表里 —— 游戏目录是共用的。
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ 账户 ============ -->
+        <section class="page" id="page-account">
+          <div class="card fill scroll">
+            <div class="card-head">
+              <span>账户</span>
+              <span class="row"><button class="ghost-btn" id="btn-acc-refresh" title="刷新">⟳</button></span>
+            </div>
+            <div class="acc-current">
+              <div class="avatar big" id="acc-avatar">?</div>
+              <div>
+                <div class="pname" id="acc-name2">未登录</div>
+                <div class="ptype" id="acc-type2">离线模式</div>
+                <div class="puuid" id="acc-uuid"></div>
+              </div>
+            </div>
+
+            <div class="set-group">
+              <div class="set-title">已保存账户</div>
+              <div id="acc-list" class="acc-grid"></div>
+            </div>
+
+            <div class="set-group">
+              <div class="set-title">添加离线账户</div>
+              <div class="row">
+                <input id="off-name" class="inp" placeholder="玩家名（1-16 位）" maxlength="16" spellcheck="false" />
+                <button id="btn-off-login" class="primary-btn">添加</button>
+              </div>
+              <p class="tip">
+                离线登录无需网络。UUID 用官方同款算法从名字派生
+                （<span class="mono">MD5("OfflinePlayer:&lt;名字&gt;")</span> 变体 3），
+                所以能直接进关闭正版验证的服务器。
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ 设置 ============ -->
+        <section class="page" id="page-settings">
+          <div class="card fill scroll">
+            <div class="card-head"><span>设置</span></div>
+            <div class="set-group">
+              <div class="set-title">游戏</div>
+              <div class="set-row"><label>.minecraft 目录</label>
+                <div class="path-row">
+                  <input id="st-mcdir" class="inp" spellcheck="false" />
+                  <button id="btn-st-mcdir" class="ghost-btn">浏览</button>
+                  <button id="btn-st-mcdir-default" class="ghost-btn">默认</button>
+                </div>
+              </div>
+              <div class="set-row"><label>Java 路径</label>
+                <div class="path-row">
+                  <input id="st-java" class="inp" placeholder="留空自动检测" spellcheck="false" />
+                  <button id="btn-st-java" class="ghost-btn">浏览</button>
+                  <button id="btn-st-javadetect" class="ghost-btn">重新检测</button>
+                </div>
+              </div>
+              <div class="set-row"><label>额外 JVM 参数</label>
+                <input id="st-jvm" class="inp" placeholder="如 -XX:+UseG1GC" spellcheck="false" />
+              </div>
+              <div class="set-row"><label>默认内存</label>
+                <span class="row"><input id="st-mem" class="inp tiny" type="number" min="1" max="64" />
+                <span class="tip">GB（快捷设置里也能改）</span></span>
+              </div>
+              <div class="set-row"><label>窗口尺寸</label>
+                <span class="row">
+                  <input id="st-w" class="inp tiny" type="number" /> ×
+                  <input id="st-h" class="inp tiny" type="number" />
+                  <label class="chk"><input id="st-fullscreen" type="checkbox" />全屏</label>
+                </span>
+              </div>
+              <div class="set-row"><label>启动后</label>
+                <label class="chk"><input id="st-hide" type="checkbox" />隐藏启动器窗口</label>
+              </div>
+            </div>
+            <div class="set-group">
+              <div class="set-title">已检测到的 Java</div>
+              <div id="java-installed" class="list mini"></div>
+              <p class="tip">
+                按版本要求自动挑：<b>够用的最低版本</b>优先。用 Java 21 去跑只要求 Java 8 的
+                1.12.2 会让部分老版 Forge 直接崩，所以不是越新越好。
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ 关于 ============ -->
+        <section class="page" id="page-about">
+          <div class="card fill scroll">
+            <div class="about">
+              <img class="about-logo" src="assets/logo.png" alt="Pebble Lunchar" draggable="false" />
+              <h2>PEBBLE LUNCHAR</h2>
+              <p class="sub">Minecraft 离线启动器 · Lite（Rust + WebView2）</p>
+              <div class="about-info" id="about-info"></div>
+              <div class="row wrap">
+                <button class="ghost-btn" id="btn-open-appdir">打开数据目录</button>
+                <button class="ghost-btn" id="btn-open-mcsite">Minecraft 官网</button>
+              </div>
+              <p class="tip">
+                <b>这一版换掉了运行时。</b>上一版基于 Electron，必须自带一整套 Chromium
+                （解包 172 MB，压完仍有 60 MB 打底）；现在界面跑在 Windows 自带的 WebView2 里，
+                程序本体只有一个几 MB 的 exe。<br />
+                功能范围：离线启动 · 本地版本扫描 · Java 检测 · 内存与分辨率 · 运行日志。<br />
+                不含：版本下载与加载器安装、Mod / 资源包 / 光影 / 存档 / 截图管理、实例与迁移、
+                正版登录、皮肤、新闻、整合包、服务器管理。
+              </p>
+              <p class="tip">
+                界面图标中使用的方块贴图版权归 Mojang / Microsoft，仅用于标识版本类型。
+              </p>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

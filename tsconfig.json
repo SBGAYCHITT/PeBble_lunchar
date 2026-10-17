@@ -64,6 +64,7 @@
     "securestore.js",
     "modstore.js",
     "migrate.js",
+    "pebblecloud.js",
     "launcher.js",
     "downloader.js"
   ],

@@ -21,7 +21,7 @@ const ROOT = path.resolve(__dirname, '..');
 const ENTRIES = [
   'main.js',
   'ipc/window.js', 'ipc/base.js', 'ipc/launch.js',
-  'ipc/versions.js', 'ipc/account.js', 'ipc/system.js'
+  'ipc/versions.js', 'ipc/account.js', 'ipc/system.js', 'ipc/update.js'
 ];
 
 /* 用 optional() 包住的可选模块：不在白名单里属于正常降级，不算漏 */

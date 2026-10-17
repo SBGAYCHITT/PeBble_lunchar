@@ -32,9 +32,11 @@ const CORE = [
   'sysconf.js', 'tray.js', 'screenshots.js', 'multilaunch.js',
   // 文案
   'i18n.js', 'i18n-ui.js', 'i18n-pages.js',
-  // 只注册这 6 个 IPC 域；ipc/index.js 会按文件存在与否自动跳过其余域
+  // 只注册这 7 个 IPC 域；ipc/index.js 会按文件存在与否自动跳过其余域。
+  // update.js 必须留着：settings 页在 Lite 白名单里，更新按钮也在，
+  // 少了这个域点「检查更新」就是 invoke 一个没人接的 channel（表现为点了没反应）。
   'ipc/index.js', 'ipc/window.js', 'ipc/base.js',
-  'ipc/launch.js', 'ipc/versions.js', 'ipc/account.js', 'ipc/system.js'
+  'ipc/launch.js', 'ipc/versions.js', 'ipc/account.js', 'ipc/system.js', 'ipc/update.js'
 ];
 
 module.exports = {

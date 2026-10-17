@@ -1,9 +1,9 @@
-// 系统级：通知 / 外部链接 / 应用信息 / 开机自启 / 托盘 / 快捷方式 / 语言 / 自动更新 / 截图 / Java
+// 系统级：通知 / 外部链接 / 应用信息 / 开机自启 / 托盘 / 快捷方式 / 语言 / 截图 / Java
+// （自动更新已挪到 ipc/update.js —— 那边连下载与安装一起管，这里只留系统设置。）
 const path = require('path');
 const { app, shell, Notification } = require('electron');
 const sysconf = require('../sysconf');
 const i18n = require('../i18n');
-const updater = require('../updater');
 const shots = require('../screenshots');
 const javadl = require('../javadl');
 
@@ -72,24 +72,6 @@ module.exports = function register(ctx) {
     return sysconf.removeShortcuts(Object.assign({
       name: 'Pebble Lunchar', target: app.getPath('exe')
     }, dirs, { kinds: (kinds && kinds.length ? kinds : ['desktop', 'startMenu']) }));
-  });
-
-  /* ---------- 自动更新 ---------- */
-  ipcMain.handle('update-check', async (_e, feedUrl) => {
-    const url = String(feedUrl || ctx.getSysConf().updateFeed || '').trim();
-    const r = await updater.checkUpdate({ feedUrl: url, currentVersion: app.getVersion() });
-    if (r.ok && r.hasUpdate && Notification.isSupported()) {
-      new Notification({
-        title: 'Pebble Lunchar 有新版本 ' + r.latestVersion,
-        body: '可在「设置 → 系统与更新」查看并下载'
-      }).show();
-    }
-    return r;
-  });
-
-  ipcMain.handle('update-feed-set', (_e, url) => {
-    ctx.patchSysConf({ updateFeed: String(url || '').trim() });
-    return { ok: true, updateFeed: ctx.getSysConf().updateFeed };
   });
 
   /* ---------- 截图增强（分辨率元数据 + 按日期归档） ---------- */

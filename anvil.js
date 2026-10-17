@@ -652,6 +652,128 @@ async function scanSaveChunks(o) {
   return { index, files: files.length, chunks, broken, missing: !fs.existsSync(dir) };
 }
 
+/* ================= 存档自检 ================= */
+
+/**
+ * 存档自检：把每个区块**解出来再原样写回去**，逐字节比对。
+ *
+ * 为什么非要这么干：单测里的区块都是自己造的，只能证明"自洽"；
+ * 玩家存档里的字段千奇百怪（mod 加的、跨版本升级留下的），
+ * 唯一能证明"我们的编解码不会弄坏玩家存档"的办法，就是拿真存档跑一遍。
+ *
+ * ⚠️ 比对的是**解压后的 NBT 字节**，不是 .mca 里的压缩负载 ——
+ *    zlib 重新压缩后字节必然不同（压缩级别/实现差异），拿压缩负载比会把每个区块都报成差异。
+ *
+ * ⚠️ 进 `skipped` 的一律不算"通过"：LZ4 区块（本项目 decompress 不支持）、负载越界、
+ *    解压或解析失败。宁可如实说"这个没检查"，也绝不说"这个没问题"——
+ *    体检报告里最危险的一句话就是"全部正常"。
+ *
+ * @param {string} saveDir
+ * @param {{limit?:number, onProgress?:(p:{files:number,chunks:number,identical:number,
+ *          mismatches:number,skipped:number,done?:boolean})=>void}} [o]
+ *        limit: 最多检查多少个区块（0 或不传 = 不限；真实存档动辄上万，界面上给个上限更友好）
+ * @returns {Promise<{ok:boolean, error?:string, saveDir:string, files:number, chunks:number,
+ *   identical:number, mismatches:Array<any>, skipped:Array<any>, errors:Array<any>,
+ *   byDim:Object, truncated:boolean}>}
+ */
+async function selfCheckSave(saveDir, o) {
+  const opt = o || {};
+  const limit = opt.limit > 0 ? Math.floor(opt.limit) : 0;
+  const onProgress = typeof opt.onProgress === 'function' ? opt.onProgress : null;
+  /** @type {any} */
+  const result = {
+    ok: true, saveDir: String(saveDir || ''),
+    files: 0, chunks: 0, identical: 0,
+    mismatches: [], skipped: [], errors: [],
+    byDim: {}, truncated: false
+  };
+  if (!saveDir || !fs.existsSync(saveDir)) {
+    result.ok = false;
+    result.error = '存档目录不存在';
+    return result;
+  }
+
+  let done = 0;
+  let stop = false;
+
+  for (const dim of DIMS) {
+    if (stop) break;
+    // 1.18+ 把实体从区块里拆到了 entities/，格式与 region 相同，一并体检
+    for (const kind of [KIND.REGION, KIND.ENTITIES]) {
+      if (stop) break;
+      const files = listRegionFiles(dataDir(saveDir, dim.key, kind));
+      if (!files.length) continue;
+      const st = result.byDim[dim.key] || (result.byDim[dim.key] = { files: 0, chunks: 0, identical: 0, mismatch: 0, skipped: 0 });
+      let sinceYield = 0;
+
+      for (const f of files) {
+        if (stop) break;   // 上限是在内层区块循环里触发的，外层这里必须再判一次，否则会把当前文件剩余区块全扫完
+        st.files++; result.files++;
+        /** @type {Buffer} */
+        let buf;
+        try { buf = readRegionFile(f.file); }
+        catch (e) { result.errors.push({ file: f.name, kind, reason: '读不了：' + e.message }); continue; }
+        let hdr;
+        try { hdr = parseHeader(buf); }
+        catch (e) { result.errors.push({ file: f.name, kind, reason: '头部解析失败：' + e.message }); continue; }
+        if (hdr.tooShort) { result.errors.push({ file: f.name, kind, reason: '不像有效的 mca（头部长度不足）' }); continue; }
+
+        for (let i = 0; i < CHUNKS_PER_REGION; i++) {
+          if (hdr.entries[i].empty) continue;
+          const cx = f.rx * SIDE + (i % SIDE);
+          const cz = f.rz * SIDE + Math.floor(i / SIDE);
+
+          let r = null;
+          try { r = readRawByIndex(buf, i); }
+          catch (e) { result.skipped.push({ file: f.name, dim: dim.key, kind, cx, cz, reason: e.message }); st.skipped++; continue; }
+          if (!r) continue;
+
+          result.chunks++; st.chunks++;
+          try {
+            const types = nbt.newTypes();
+            const tree = nbt.parse(r.data, types);
+            const out = nbt.serialize(tree.name, tree.value, types);
+            if (out.equals(r.data)) { result.identical++; st.identical++; }
+            else {
+              result.mismatches.push({
+                file: f.name, dim: dim.key, kind, cx, cz,
+                inBytes: r.data.length, outBytes: out.length
+              });
+              st.mismatch++;
+            }
+          } catch (e) {
+            // 解出来就失败 = 这个区块的编码路径没走通，同样不能算通过
+            result.skipped.push({ file: f.name, dim: dim.key, kind, cx, cz, reason: '解析/写回失败：' + e.message });
+            st.skipped++;
+          }
+
+          done++;
+          if (limit && done >= limit) { result.truncated = true; stop = true; break; }
+          // 主进程不能被一次体检占死：每 64 个区块把控制权交回去，顺带报一次进度
+          if (++sinceYield >= 64) {
+            sinceYield = 0;
+            if (onProgress) {
+              onProgress({
+                files: result.files, chunks: result.chunks, identical: result.identical,
+                mismatches: result.mismatches.length, skipped: result.skipped.length
+              });
+            }
+            await new Promise((res) => setImmediate(res));
+          }
+        }
+      }
+    }
+  }
+
+  if (onProgress) {
+    onProgress({
+      files: result.files, chunks: result.chunks, identical: result.identical,
+      mismatches: result.mismatches.length, skipped: result.skipped.length, done: true
+    });
+  }
+  return result;
+}
+
 module.exports = {
   SECTOR, HEADER_BYTES, SIDE, CHUNKS_PER_REGION, COMP, KIND, DIMS,
   AnvilError,
@@ -661,5 +783,6 @@ module.exports = {
   readRawByIndex, readRaw, readNbt, hashOf, chunkHash,
   empty, repack, setChunk, deleteChunk,
   readRegionFile, writeRegionFile,
-  listRegionFiles, regionFilePath, readSaveChunk, writeSaveChunk, applySaveChunks, scanSaveChunks
+  listRegionFiles, regionFilePath, readSaveChunk, writeSaveChunk, applySaveChunks, scanSaveChunks,
+  selfCheckSave
 };

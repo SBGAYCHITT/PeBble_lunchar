@@ -1,0 +1,35 @@
+[package]
+name = "pebble-lunchar-lite"
+version = "4.2.0"
+edition = "2021"
+description = "Pebble Lunchar Lite - Rust + WebView2 轻量启动器"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+# ── 这一条不是用来写代码的，是用来修构建的 ────────────────────────────────
+# tauri-build / tauri-utils 会拉进 schemars 0.8.22，而它在 preserve_order 特性下
+# 写的是 `indexmap::IndexMap<K, V>`（两参）；indexmap 1.9.3 只在 has_std 成立时
+# 才给第三个泛型参数 S 默认值。has_std 由它自己的 build script 用 autocfg 探测
+# 得出 —— 本机 rustup 装在非默认盘符，探测失手，于是整个构建挂在 schemars 上。
+# 显式启用 indexmap 1.x 的 `std` 特性，它的 build script 就会直接
+# `autocfg::emit("has_std")` 而不再探测。
+#
+# 必须放在 build-dependencies：Rust 2021 用 resolver v2，构建依赖与普通依赖的
+# feature 分开解析，放 [dependencies] 里不会作用到 schemars 用的那个实例。
+indexmap = { version = "1", features = ["std"] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+md5 = "0.7"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

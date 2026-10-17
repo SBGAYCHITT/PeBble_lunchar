@@ -1361,7 +1361,51 @@
           + T("pg.L1332C200", null, '体检只做只读扫描，不会改动存档。若确实损坏，先去「时光机」回到损坏前的快照；')
           + T("pg.L1333C201", null, '实体热点通常是刷怪塔或掉落物堆积，进去清理即可。</div>'));
       }
+
+      /* 深度自检：结构没问题 ≠ 字节能原样写回。
+       * 上面那些是"读得出来吗"，这一步问的是"读出来再写回去，还是原来那个字节吗"——
+       * 只有它能证明编解码不会在保存时悄悄改动玩家的存档。 */
+      parts.push(T('health.deepTitle', null, '<div class="hl-sec">深度自检（字节级）</div>'));
+      parts.push(T('health.deepTip', null,
+        '<div class="tm-tip">把每个区块解出来再原样写回，逐字节比对。结构扫描发现不了的「读得进、写回变样」，只有这一步能看出来。默认抽查 4000 个区块，全程只读、不改存档。</div>'));
+      parts.push(T('health.deepRow', null,
+        '<div class="row"><button class="ghost-btn" data-act="deepcheck">开始深度自检</button><span class="tip" data-role="deep-out"></span></div>'));
       body.innerHTML = parts.join('');
+
+      const deepBtn = body.querySelector('[data-act=deepcheck]');
+      const deepOut = body.querySelector('[data-role=deep-out]');
+      if (deepBtn && deepOut) deepBtn.onclick = async () => {
+        deepBtn.disabled = true;
+        deepOut.className = 'tip';
+        deepOut.textContent = T('health.deepRunning', null, '正在检查…');
+        // 订阅要能撤掉：弹窗反复打开时不撤，回调会一次次叠上去
+        const off = window.api.onSelfcheckProgress
+          ? window.api.onSelfcheckProgress((p) => {
+            if (p) deepOut.textContent = T('health.deepProgress', { n: p.chunks }, '已检查 {{n}} 个区块…');
+          })
+          : null;
+        try {
+          const d = await window.api.worldSelfcheck(s.dir, { limit: 4000 });
+          if (!d || !d.ok) {
+            deepOut.textContent = T('health.deepFail', null, '自检失败: ') + ((d && d.error) || '');
+            deepOut.className = 'tip err';
+            return;
+          }
+          // 三项全为 0 才算真的干净：mismatches 是写回变样，skipped 是压根没检查（不能算通过）
+          const clean = d.mismatches.length === 0 && d.skipped.length === 0 && d.errors.length === 0;
+          deepOut.textContent = T('health.deepDone',
+            { n: d.chunks, same: d.identical, diff: d.mismatches.length, skip: d.skipped.length },
+            '检查 {{n}} 个区块：一致 {{same}}，不一致 {{diff}}，未检查 {{skip}}')
+            + (d.truncated ? T('health.deepTrunc', null, '（已达抽查上限）') : '');
+          deepOut.className = 'tip ' + (clean ? 'ok' : 'warn');
+        } catch (e) {
+          deepOut.textContent = T('health.deepFail', null, '自检失败: ') + e.message;
+          deepOut.className = 'tip err';
+        } finally {
+          deepBtn.disabled = false;
+          if (off) off();
+        }
+      };
     });
   }
 
@@ -1826,6 +1870,9 @@
   function wtabSwitch(name) {
     document.querySelectorAll('#world-tabs .tab').forEach((t) => t.classList.toggle('active', t.dataset.wtab === name));
     document.querySelectorAll('#page-world .wtab').forEach((p) => p.classList.toggle('active', p.id === 'wtab-' + name));
+    // 切走时画布尺寸是 0，画出来必然是一张废图；切回来必须重画一次
+    if (name === 'replay') setTimeout(wvrDrawCanvas, 30);
+    if (name === 'map') setTimeout(wmpDraw, 30);
   }
 
   /* ---- 版本控制 ---- */
@@ -1841,6 +1888,9 @@
     renderVerLog(log);
     const br = await wapi.worldVerBranches(dir);
     renderVerBranches(br);
+    // 「回放与合并」页的分支下拉复用同一份结果 —— 少一次 IPC，也保证两页看到的分支一致
+    $('wvr-dir').textContent = dir;
+    renderWvrBranches(br);
   }
   function renderVerStatus(st) {
     const el = $('wv-status');
@@ -1910,6 +1960,355 @@
     $('wv-status').textContent = T('world.ver.gc', null, `清理 ${r.removed} 个孤儿对象，释放 ${fmtSize(r.freed)}`);
   }
 
+  /* ---- 回放与合并（V5 第一组：世界版本控制完整版） ----
+   * 三块能力：方块级 blame / 时间轴回放 / 自研三方合并。
+   *
+   * 目录刻意与「版本控制」页共用同一个输入框（#wv-dir）：同一个存档在两个页各选一次，
+   * 迟早会出现"我明明在那边切过分支了"的错觉，而 blame 读的正是 HEAD 那条链。
+   *
+   * 另外，画布上的高亮框、时间轴滑块、帧缓存三者必须指向**同一个方块坐标**。
+   * 所以坐标一改就整体作废（wvrInvalidate），而不是留着上一块的帧假装还能用 ——
+   * 那种"看起来对、其实画的是别的区块"的错最难发现。
+   */
+  const wvr = {
+    cx: 0, cz: 0, x: 0, y: 0, z: 0,
+    frames: [], framesBlock: '', frame: null, prev: null, cache: new Map()
+  };
+
+  /** 当前存档目录；没选就就地提示并返回空串 */
+  function wvrDir() {
+    const dir = $('wv-dir').value.trim();
+    if (!dir) $('wvr-dir').textContent = T("pg.L1937C1", null, '还没选存档。点「浏览」选一个，或去「版本控制」页选。');
+    return dir;
+  }
+  function wvrCoords() {
+    return { x: Math.trunc(num('wvr-x')), y: Math.trunc(num('wvr-y')), z: Math.trunc(num('wvr-z')) };
+  }
+  /** 坐标一变，之前那一套帧/缓存/高亮全部失效 */
+  function wvrInvalidate() {
+    wvr.frames = []; wvr.framesBlock = ''; wvr.frame = null; wvr.prev = null; wvr.cache.clear();
+    const sl = $('wvr-slider'); sl.max = '0'; sl.value = '0'; sl.disabled = true;
+    $('wvr-tip').textContent = T("pg.L1947C2", null, '坐标变了，重新点「看这一格回放」。');
+    $('wvr-frametip').textContent = '';
+    wvrDrawCanvas();
+  }
+
+  async function wvrPick() {
+    const dir = await wapi.pickDirectory(); if (!dir) return;
+    $('wv-dir').value = dir; wd.verDir = dir;
+    wvrRefresh();
+  }
+  async function wvrRefresh() {
+    const dir = $('wv-dir').value.trim();
+    if (!dir) { $('wvr-dir').textContent = T("pg.L1959C3", null, '还没选存档。这里与「版本控制」页共用同一个存档目录。'); return; }
+    wd.verDir = dir;
+    $('wvr-dir').textContent = dir;
+    const br = await wapi.worldVerBranches(dir);
+    renderWvrBranches(br);
+  }
+  function renderWvrBranches(br) {
+    const list = br || [];
+    const our = $('wvr-ours'), their = $('wvr-theirs');
+    const keepO = our.value, keepT = their.value;
+    for (const sel of [our, their]) {
+      sel.innerHTML = '';
+      for (const b of list) {
+        const o = document.createElement('option');
+        o.value = b.name;
+        o.textContent = b.name + (b.current ? T("pg.L1974C4", null, '（当前）') : '');
+        sel.appendChild(o);
+      }
+    }
+    const cur = ((list.find((b) => b.current) || list[0]) || {}).name || '';
+    our.value = list.some((b) => b.name === keepO) ? keepO : cur;
+    // 「并入」默认挑一个**不是**我方的分支，省得用户先撞一次"不能合并到自己"
+    their.value = (list.some((b) => b.name === keepT) && keepT !== our.value)
+      ? keepT : (((list.find((b) => b.name !== our.value)) || {}).name || '');
+    const ready = list.length >= 2 && !!their.value;
+    $('wvr-merge-plan').disabled = !ready;
+    $('wvr-merge-apply').disabled = !ready;
+    $('wvr-merge-status').textContent = ready ? '' : T("pg.L1986C5", null, '至少要有两个分支才谈得上合并。先去「版本控制」页建一个。');
+  }
+
+  /* --- 方块级 blame --- */
+  async function wvrBlame() {
+    const dir = wvrDir(); if (!dir) return;
+    const c = wvrCoords();
+    wvr.x = c.x; wvr.y = c.y; wvr.z = c.z;
+    wvr.cx = Math.floor(c.x / 16); wvr.cz = Math.floor(c.z / 16);
+    const r = await wapi.worldVerBlameBlock({ saveDir: dir, x: c.x, y: c.y, z: c.z });
+    const head = $('wvr-blame-state'), box = $('wvr-blame');
+    box.innerHTML = '';
+    if (!r || r.error) { head.textContent = T('world.err', null, '错误: ') + (r && r.error || ''); return; }
+    // 不支持 / 没跟踪 这两种情况都必须直说。只给个空列表的话，
+    // 用户没法区分"这格真的没动过"和"这个存档根本没纳入跟踪"。
+    if (!r.supported) {
+      head.textContent = r.reason || T("pg.L2002C6", null, '读不出这一格的改动史');
+      box.innerHTML = T('world.ver.empty', null, '<div class="empty">没有改动记录</div>');
+      return;
+    }
+    head.innerHTML = T("pg.L2006C7", null, `坐标 (${c.x}, ${c.y}, ${c.z}) · 区块 ${esc(r.chunk)} · 现在是 ${esc(r.state || '不存在')}<br>被 ${r.touched} 次提交碰过，其中 ${r.history.length} 次真的改变了这一格`);
+    if (!r.history.length) { box.innerHTML = T('world.ver.empty', null, '<div class="empty">没有改动记录</div>'); return; }
+    for (const h of r.history) {
+      const d = document.createElement('div');
+      d.className = 'item' + (h.current ? ' selected' : '');
+      let tags = '';
+      if (h.current) tags += T("pg.L2012C8", null, ' · 现在');
+      if (h.deleted) tags += T("pg.L2013C9", null, ' · 这一帧里不存在');
+      if (h.merged) tags += T("pg.L2014C10", null, ' · 合并带进来');
+      d.title = T("pg.L2015C11", null, '点一下：把这一格画成这个版本');
+      d.innerHTML = T("pg.L2016C12", null, `<div><div class="t">${esc(h.state || '不存在')}${tags}</div><div class="s">${esc(h.id)} · ${fmtTime(h.time)} · ${esc(h.message || '')}</div></div>`);
+      d.onclick = () => { wvrJumpCommit(h.id); };
+      box.appendChild(d);
+    }
+  }
+  /** 点历史里的一条 → 画布切到那一版。时间轴里没有这条提交的帧也照样能画。 */
+  async function wvrJumpCommit(id) {
+    const key = wvr.x + ',' + wvr.y + ',' + wvr.z;
+    const i = wvr.framesBlock === key ? wvr.frames.findIndex((f) => f.id === id) : -1;
+    if (i >= 0) $('wvr-slider').value = String(i);
+    await wvrLoadFrame(id);
+    if (i < 0) $('wvr-tip').textContent = T("pg.L2027C13", null, '这条提交没有改变这一格，时间轴里没有对应的帧；画布给的是它当时的状态。');
+  }
+
+  /* --- 时间轴回放 --- */
+  async function wvrPlay() {
+    const dir = wvrDir(); if (!dir) return;
+    const c = wvrCoords();
+    const cx = Math.floor(c.x / 16), cz = Math.floor(c.z / 16);
+    wvr.x = c.x; wvr.y = c.y; wvr.z = c.z; wvr.cx = cx; wvr.cz = cz;
+    const t = await wapi.worldVerTimeline({ saveDir: dir, cx, cz });
+    if (!t || t.error) { $('wvr-tip').textContent = T('world.err', null, '错误: ') + (t && t.error || ''); return; }
+    wvr.frames = t.frames || [];
+    wvr.framesBlock = wvr.x + ',' + wvr.y + ',' + wvr.z;
+    wvr.cache.clear();
+    const sl = $('wvr-slider');
+    sl.max = String(Math.max(0, wvr.frames.length - 1));
+    sl.disabled = !wvr.frames.length;
+    if (!wvr.frames.length) {
+      sl.value = '0'; wvr.frame = null; wvr.prev = null;
+      $('wvr-tip').textContent = T("pg.L2046C14", null, `区块 (${cx}, ${cz}) 在这些提交里没被改过，没有可回放的帧。`);
+      $('wvr-frametip').textContent = '';
+      wvrDrawCanvas();
+      return;
+    }
+    $('wvr-tip').textContent = T("pg.L2051C15", null, `区块 (${cx}, ${cz}) 共 ${wvr.frames.length} 帧，滑块拉到最右就是现在。`);
+    await wvrShowFrame(wvr.frames.length - 1);
+  }
+  async function wvrShowFrame(i) {
+    const f = wvr.frames[i]; if (!f) return;
+    $('wvr-slider').value = String(i);
+    await wvrLoadFrame(f.id);
+  }
+  async function wvrStep(d) {
+    const n = wvr.frames.length; if (!n) return;
+    const cur = Math.trunc(Number($('wvr-slider').value)) || 0;
+    await wvrShowFrame(Math.max(0, Math.min(n - 1, cur + d)));
+  }
+  /** 按提交 id 取帧内容；顺带把"上一帧"准备好，供「只标出改动的格子」对照 */
+  async function wvrLoadFrame(id) {
+    const dir = $('wv-dir').value.trim(); if (!dir) return;
+    const y = Math.trunc(num('wvr-y'));
+    const f = await wapi.worldVerFrame({ saveDir: dir, cx: wvr.cx, cz: wvr.cz, y, id });
+    if (!f || f.error) { $('wvr-frametip').textContent = T('world.err', null, '错误: ') + (f && f.error || ''); return; }
+    wvr.cache.set(id, f);
+    wvr.frame = f;
+    await wvrPrepPrev(id);
+    wvrDrawCanvas();
+    renderWvrFrameTip(id, f);
+  }
+  async function wvrPrepPrev(id) {
+    wvr.prev = null;
+    if (!$('wvr-diff').checked) return;
+    const key = wvr.x + ',' + wvr.y + ',' + wvr.z;
+    if (wvr.framesBlock !== key) return;
+    const i = wvr.frames.findIndex((x) => x.id === id);
+    if (i <= 0) return;
+    const pid = wvr.frames[i - 1].id;
+    let p = wvr.cache.get(pid);
+    if (!p) {
+      const dir = $('wv-dir').value.trim(); if (!dir) return;
+      p = await wapi.worldVerFrame({ saveDir: dir, cx: wvr.cx, cz: wvr.cz, y: Math.trunc(num('wvr-y')), id: pid });
+      if (p && !p.error) wvr.cache.set(pid, p);
+    }
+    if (p && p.states) wvr.prev = p;
+  }
+  function renderWvrFrameTip(id, f) {
+    const i = wvr.frames.findIndex((x) => x.id === id);
+    let s = i >= 0 ? T("pg.L2094C16", null, `第 ${i + 1} / ${wvr.frames.length} 帧`) : T("pg.L2094C17", null, '这一帧不在时间轴上');
+    if (i >= 0) {
+      const m = wvr.frames[i];
+      s += ` · ${esc(m.id)} · ${fmtTime(m.time)} · ${esc(m.message || '')}`;
+    }
+    if (!f.states) s += ' · ' + (f.reason || T("pg.L2099C18", null, '这一层没画出来'));
+    $('wvr-frametip').innerHTML = s;
+  }
+
+  function wvrDrawCanvas() {
+    const cv = $('wvr-canvas'); if (!cv) return;
+    const ctx = cv.getContext('2d');
+    const W = cv.clientWidth || 400, H = cv.clientHeight || 200;
+    if (cv.width !== W) cv.width = W;
+    if (cv.height !== H) cv.height = H;
+    ctx.fillStyle = '#0e1014'; ctx.fillRect(0, 0, W, H);
+    const f = wvr.frame;
+    if (!f || !f.states || !f.colors) {
+      ctx.fillStyle = '#6b7280'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText((f && f.reason) || T("pg.L2113C19", null, '还没有可以显示的帧'), W / 2, H / 2);
+      ctx.textAlign = 'left';
+      return;
+    }
+    const cs = Math.max(4, Math.floor(Math.min(W, H) / 16));
+    const ox = Math.floor((W - cs * 16) / 2), oy = Math.floor((H - cs * 16) / 2);
+    const prev = wvr.prev;          // 非空 = 勾了「只标出改动」，没变的一律压暗
+    for (let z = 0; z < 16; z++) {
+      for (let x = 0; x < 16; x++) {
+        const i = z * 16 + x;
+        const c = f.colors[i];
+        const changed = !prev || prev.states[i] !== f.states[i];
+        ctx.globalAlpha = prev && !changed ? 0.16 : 1;
+        ctx.fillStyle = c ? `rgb(${c[0]},${c[1]},${c[2]})` : '#0e1014';
+        ctx.fillRect(ox + x * cs, oy + z * cs, cs, cs);
+        if (prev && changed) {
+          ctx.globalAlpha = 1;
+          ctx.strokeStyle = '#e0913a'; ctx.lineWidth = 1;
+          ctx.strokeRect(ox + x * cs + 0.5, oy + z * cs + 0.5, Math.max(1, cs - 1), Math.max(1, cs - 1));
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
+    // 选中的那一格：十字高亮。少了它，16×16 里那格到底在哪全靠猜
+    const lx = ((wvr.x % 16) + 16) % 16, lz = ((wvr.z % 16) + 16) % 16;
+    ctx.strokeStyle = '#00b3a4'; ctx.lineWidth = 2;
+    ctx.strokeRect(ox + lx * cs + 1, oy + lz * cs + 1, Math.max(2, cs - 2), Math.max(2, cs - 2));
+  }
+  function wvrHover(e) {
+    const cv = $('wvr-canvas'), f = wvr.frame;
+    if (!cv || !f || !f.states) return;
+    const rect = cv.getBoundingClientRect();
+    const cs = Math.max(4, Math.floor(Math.min(cv.width, cv.height) / 16));
+    const ox = Math.floor((cv.width - cs * 16) / 2), oy = Math.floor((cv.height - cs * 16) / 2);
+    const x = Math.floor((e.clientX - rect.left - ox) / cs);
+    const z = Math.floor((e.clientY - rect.top - oy) / cs);
+    if (x < 0 || x > 15 || z < 0 || z > 15) { renderWvrFrameTip(wvr.frame.id, f); return; }
+    $('wvr-frametip').textContent = T("pg.L2150C20", null, `(${wvr.cx * 16 + x}, ${Math.trunc(num('wvr-y'))}, ${wvr.cz * 16 + z}) → ${f.states[z * 16 + x] || '空气'}`);
+  }
+  /** 画布上点一格 → 把左边坐标换成它，方便"看到哪就问哪" */
+  function wvrClickCanvas(e) {
+    const cv = $('wvr-canvas'); if (!cv || !wvr.frame) return;
+    const rect = cv.getBoundingClientRect();
+    const cs = Math.max(4, Math.floor(Math.min(cv.width, cv.height) / 16));
+    const ox = Math.floor((cv.width - cs * 16) / 2), oy = Math.floor((cv.height - cs * 16) / 2);
+    const x = Math.floor((e.clientX - rect.left - ox) / cs);
+    const z = Math.floor((e.clientY - rect.top - oy) / cs);
+    if (x < 0 || x > 15 || z < 0 || z > 15) return;
+    $('wvr-x').value = String(wvr.cx * 16 + x);
+    $('wvr-z').value = String(wvr.cz * 16 + z);
+    wvr.x = wvr.cx * 16 + x; wvr.z = wvr.cz * 16 + z;
+    wvrDrawCanvas();
+    wvrBlame();
+  }
+
+  /* --- 自研三方合并 --- */
+  function wvrMergeObj(apply) {
+    const strat = $('wvr-strategy').value;
+    return {
+      saveDir: $('wv-dir').value.trim(),
+      ours: $('wvr-ours').value,
+      theirs: $('wvr-theirs').value,
+      strategy: strat,
+      // strategy=conflict 时不放行：有冲突就该停下来问人。
+      // 合并出错的代价是几百小时的世界，"默默按某一侧赢"不是一个可接受的默认。
+      allowConflicts: !!apply && strat !== 'conflict'
+    };
+  }
+  async function wvrMergePlan() {
+    const dir = wvrDir(); if (!dir) return;
+    if (!$('wvr-ours').value || !$('wvr-theirs').value) return;
+    $('wvr-merge-status').textContent = T("pg.L2184C21", null, '正在比较两侧…');
+    const r = await wapi.worldVerMergePlan(wvrMergeObj(false));
+    renderWvrMerge(r, false);
+  }
+  async function wvrMergeApply() {
+    const dir = wvrDir(); if (!dir) return;
+    const ours = $('wvr-ours').value, theirs = $('wvr-theirs').value;
+    if (!ours || !theirs) return;
+    if (!confirm(T("pg.L2192C22", null, `把「${theirs}」合并进「${ours}」。合并只写版本库、不改存档目录，之后想落地要再切到该分支点「回滚到选中」。确定继续？`))) return;
+    $('wvr-merge-status').textContent = T("pg.L2193C23", null, '正在合并…');
+    const r = await wapi.worldVerMergeApply(wvrMergeObj(true));
+    renderWvrMerge(r, true);
+  }
+  function renderWvrMerge(r, applied) {
+    const st = $('wvr-merge-status');
+    if (!r || r.error) {
+      st.textContent = T('world.err', null, '错误: ') + ((r && r.error) || '');
+      if (r && r.plan) renderWvrMergePlan(r.plan);
+      return;
+    }
+    if (applied) {
+      const lost = r.plan && r.plan.stats ? (r.plan.stats.droppedBlocks || 0) : 0;
+      st.textContent = r.upToDate ? T("pg.L2205C24", null, '对方已经在我方的历史里了，不需要合并。')
+        : r.fastForward ? T("pg.L2206C25", null, `已快进到 ${r.id}（没有产生新提交）`)
+          : T("pg.L2207C26", null, `已生成合并提交 ${r.id}，其中冲突区块 ${r.conflicts} 个`)
+            + (lost ? T("pg.L2209C1", null, `⚠ 丢掉了 ${lost} 个方块改动，详见下方`) : '');
+    } else {
+      st.textContent = r.upToDate ? T("pg.L2209C27", null, '无事可做。') : r.fastForward ? T("pg.L2209C28", null, '可以直接快进。') : T("pg.L2209C29", null, `冲突区块 ${r.conflictCount} 个。`);
+    }
+    renderWvrMergePlan(r.plan || r);
+  }
+  function renderWvrMergePlan(p) {
+    const box = $('wvr-merge');
+    if (!p) { box.textContent = ''; return; }
+    const L = [];
+    if (p.upToDate) L.push(T("pg.L2217C30", null, '对方已经是我方的祖先，无事可做。'));
+    else if (p.fastForward) L.push(T("pg.L2218C31", null, '我方在对方的历史里 → 可以直接快进，不会产生新提交。'));
+    else {
+      L.push(T("pg.L2220C32", null, '共同祖先：') + (p.base || T("pg.L2220C33", null, '（没有，两侧各从自己的根开始）')));
+      L.push(T("pg.L2221C34", null, `我方独有 ${p.stats.oursOnly} · 对方独有 ${p.stats.theirsOnly} · 两边改成一样 ${p.stats.bothSame} · 冲突 ${p.stats.conflict}`));
+      L.push(T("pg.L2222C35", null, `我方 ${p.oursId} ／ 对方 ${p.theirsId} · 策略 ${p.strategy}`));
+    }
+    if (p.conflicts && p.conflicts.length) {
+      L.push('');
+      L.push(T("pg.L2226C36", null, `冲突区块 ${p.conflicts.length} 个：`));
+      for (const c of p.conflicts) {
+        L.push(T("pg.L2228C37", null, `  ${c.dim}/${c.kind} (${c.chunk})  我方 ${shortHash(c.ours)} ／ 对方 ${shortHash(c.theirs)} ／ 共同祖先 ${shortHash(c.base)}`));
+        const d = c.detail;
+        if (d && d.decoded) {
+          if (d.conflict) {
+            L.push(T("pg.L2232C38", null, `    方块级真冲突 ${d.conflict} 个${d.disjoint ? '' : '，其余改动互不相交'}`));
+            for (const s of (d.conflictSample || [])) {
+              L.push(T("pg.L2234C39", null, `      (${s.x}, ${s.y}, ${s.z}) 祖先 ${s.base || '空'} → 我方 ${s.ours || '空'} ／ 对方 ${s.theirs || '空'}`));
+            }
+          } else if (d.disjoint) {
+            L.push(T("pg.L2237C40", null, `    方块级不冲突：两边改的是不同的方块（我方 ${d.oursOnly} 个 / 对方 ${d.theirsOnly} 个）`));
+          } else {
+            L.push(T("pg.L2239C41", null, '    方块级分析：没有可比对的差异'));
+          }
+        } else if (d && d.reason) {
+          L.push('    ' + d.reason);
+        }
+      }
+      if (p.conflicts.length > (p.conflictsAnalyzed || 0)) {
+        L.push(T("pg.L2246C42", null, `  （只分析了前 ${p.conflictsAnalyzed} 个区块的方块级差异，其余按区块整体落点）`));
+      }
+      // 「整块取一侧」的代价必须摆在最显眼的位置。
+      // 不说清楚，用户会以为合并完两侧改动都留下了 —— 实际会少掉若干个方块。
+      if (p.stats && p.stats.droppedBlocks) {
+        const side = p.strategy === 'theirs' ? T("pg.L2253C2", null, '对方') : T("pg.L2253C3", null, '我方');
+        L.push('');
+        L.push(T("pg.L2255C4", null, `⚠ 按「${side}」落点会丢掉 ${p.stats.droppedBlocks} 个方块改动${p.droppedPartial ? '（分析有上限，实际可能更多）' : ''}：`));
+        for (const c of p.conflicts) {
+          for (const s of (c.droppedSample || [])) {
+            L.push(T("pg.L2258C5", null, `    (${s.x}, ${s.y}, ${s.z})  ${s.base || '空'} 将被覆盖为 ${p.strategy === 'theirs' ? (s.theirs || '空') : (s.ours || '空')}`));
+          }
+        }
+        L.push(T("pg.L2261C6", null, '  当前合并只能整个区块取一侧。要让两侧改动都保留，先手动把这几个方块补回去，或换一种落点。'));
+      }
+    }
+    box.textContent = L.join('\n');
+  }
+  function shortHash(h) { return h ? String(h).slice(0, 8) : '—'; }
+
   /* ---- 区域搬运 ---- */
   async function wmPick(which) {
     const dir = await wapi.pickDirectory(); if (!dir) return;
@@ -1918,9 +2317,15 @@
   }
   function wmPlanObj() {
     return {
-      from: $('wm-from').value.trim(), to: $('wm-to').value.trim(), dim: 'overworld',
+      from: $('wm-from').value.trim(), to: $('wm-to').value.trim(),
+      // 维度必须可选：下界的建筑搬不回主世界，写死 overworld 等于让一半场景用不了
+      dim: ($('wm-dim') && $('wm-dim').value) || 'overworld',
       x1: num('wm-x1'), z1: num('wm-z1'), x2: num('wm-x2'), z2: num('wm-z2'),
-      mode: $('wm-mode').value, syncEntities: $('wm-ent').checked
+      // 平移：留空 / 0 就是原地复制。非 16 的倍数一律拒绝（主进程会给出最近可用值），
+      // 这里不做四舍五入 —— 悄悄改掉用户填的数字比报错危险得多。
+      dx: num('wm-dx'), dz: num('wm-dz'),
+      mode: $('wm-mode').value, syncEntities: $('wm-ent').checked,
+      force: !!($('wm-force') && $('wm-force').checked)
     };
   }
   async function wmPlan() { const r = await wapi.worldMergePlan(wmPlanObj()); renderMerge(r, false); }
@@ -1928,23 +2333,159 @@
     if (!confirm(T('world.merge.confirm', null, '执行搬运前会自动给目标存档打快照。确定执行？'))) return;
     const r = await wapi.worldMergeApply(wmPlanObj()); renderMerge(r, true);
   }
+  /**
+   * 渲染计划书 / 执行结果。
+   *
+   * 三类"没做成"必须分开说，否则用户没法判断下一步做什么：
+   *   - 检索串/参数写错（SHIFT_NOT_ALIGNED）→ 给出最近可用值，并放一颗"就用它"的按钮；
+   *   - 预检有硬拦阻（blocked）→ 列出【必须先解决】的那几条，提示可勾选强制；
+   *   - 真的失败了（error）→ 原样显示错误。
+   */
   function renderMerge(r, applied) {
     const box = $('wm-result');
-    if (!r || r.error) { box.innerHTML = T('world.err', null, '错误: ') + (r && r.error || ''); return; }
-    if (applied) {
-      box.innerHTML = T('world.merge.done', null, `执行完成：写入 ${r.written} 区块，删除 ${r.deleted} 区块，涉及 ${r.files} 个文件`)
-        + (r.safety ? T('world.merge.safety', null, `<br>已自动打快照 ${r.safety}`) : '')
-        + (r.verification && !r.verification.ok ? T('world.merge.verfail', null, '<br>⚠ 复验有不一致，请检查') : T('world.merge.verok', null, '<br>复验通过'));
+    if (!r) { box.innerHTML = T('world.err', null, '错误: '); return; }
+
+    // 平移量没对齐：不是失败，是"你填的数我用不了"。把最近可用值摆出来给一颗按钮。
+    if (r.code === 'SHIFT_NOT_ALIGNED' && r.nearest) {
+      const n = r.nearest;
+      box.innerHTML = esc(r.error || '') + '<br>' + T('world.merge.nearest',
+        null, `最近可用的是 dx=${n.dx}、dz=${n.dz}（对应区块偏移 ${n.dxc}, ${n.dzc}）。`)
+        + T("pg.L2307C1", null, ` <button class="ghost-btn" id="wm-use-nearest">${esc(T('world.merge.useNearest', null, '就用它'))}</button>`);
+      const b = $('wm-use-nearest');
+      if (b) b.onclick = () => { $('wm-dx').value = String(n.dx); $('wm-dz').value = String(n.dz); wmPlan(); };
       return;
     }
-    const L = [];
-    L.push(T('world.merge.box', null, `区域：${r.box.block.x1},${r.box.block.z1} ~ ${r.box.block.x2},${r.box.block.z2}（${r.box.chunks} 区块）`));
-    L.push(T('world.merge.source', null, `源：命中 ${r.source.present} / 缺失 ${r.source.missing} 区块，${fmtSize(r.source.bytes)}，实体 ${r.source.entities}`));
-    L.push(T('world.merge.target', null, `目标：新建 ${r.target.create} / 相同 ${r.target.same} / 冲突 ${r.target.conflict}`));
-    L.push(T('world.merge.plan', null, `待写入 ${r.write.chunks} 区块（相同 ${r.write.same}，跳过 ${r.write.skipped}）`));
-    for (const w of (r.warnings || [])) L.push(T('world.merge.warn', null, '⚠ ') + esc(w));
-    if (r.hotspots && r.hotspots.length) L.push(T('world.merge.hotspots', null, `实体热点 ${r.hotspots.length} 个，最多 ${r.hotspots[0].entities} 个/区块`));
+    if (r.error) { box.innerHTML = T('world.err', null, '错误: ') + esc(r.error); return; }
+
+    if (applied) {
+      const L2 = [];
+      if (r.blocked) {
+        L2.push(T('world.merge.blockedHead', null, '<b>已拦下，没有写任何文件。</b>预检发现这些必须先解决：'));
+        for (const b of (r.blockers || [])) L2.push('　• ' + esc(b));
+        L2.push(T('world.merge.blockedTail', null, '确认不是问题（或已经处理掉）后，勾上「预检有拦阻也照样执行」再点一次。'));
+        box.innerHTML = L2.join('<br>');
+        return;
+      }
+      L2.push(r.nothingToDo
+        ? T('world.merge.nothing', null, '目标存档里这些区块已经和源一致，没有需要写的内容。')
+        : T('world.merge.done', null, `执行完成：写入 ${r.written} 区块，删除 ${r.deleted} 区块，涉及 ${r.files} 个文件`));
+      if (r.translated) L2.push(T('world.merge.translated', null, `其中 ${r.translated} 个区块做了坐标平移。`));
+      if (r.safety) L2.push(T('world.merge.safety', null, `已自动打快照 ${r.safety}`));
+      L2.push(r.verification && !r.verification.ok
+        ? T('world.merge.verfail', null, `⚠ 复验有 ${r.verification.mismatched.length} 处不一致，请检查：`) + ' ' + esc(r.verification.mismatched.slice(0, 8).join('、'))
+        : T('world.merge.verok', null, `复验通过（核对 ${(r.verification && r.verification.checked) || 0} 个区块）`));
+      if (r.plan) {
+        wmMatrixDraw(r.plan.matrix);
+        wmLines(r.plan).forEach((x) => L2.push(x));
+      }
+      box.innerHTML = L2.join('<br>');
+      return;
+    }
+
+    // 干跑：把"会做什么"和"有什么风险"分开列
+    const L = wmLines(r);
     box.innerHTML = L.join('<br>');
+    wmMatrixDraw(r.matrix);
+  }
+  /** 计划书的公共部分（干跑与执行后都要列，所以抽出来） */
+  function wmLines(r) {
+    const L = [];
+    L.push(T('world.merge.box', null, `${r.dimLabel || r.dim}｜区域：${r.box.block.x1},${r.box.block.z1} ~ ${r.box.block.x2},${r.box.block.z2}（${r.box.chunks} 区块）`));
+    if (r.shift && r.shift.needed) {
+      L.push(T('world.merge.shift', null, `平移：dx=${r.shift.dx}, dz=${r.shift.dz}（${r.shift.dxc}, ${r.shift.dzc} 区块）→ 目标区块 ${r.destBox.cx1},${r.destBox.cz1} ~ ${r.destBox.cx2},${r.destBox.cz2}`));
+      const t = r.translate || {};
+      L.push(T('world.merge.translateLine', null, T("pg.L2351C2", null, `平移会改写：${t.chunks} 个区块坐标 / ${t.pos} 处绝对坐标 / ${t.blockEntities} 个方块实体 / ${t.ticks} 条计划刻 / ${t.entities} 个实体`)
+        + (t.structures ? T("pg.L2352C3", null, ` / ${t.chunksWithStructures} 个区块里的结构起点`) : '')));
+    } else {
+      L.push(T('world.merge.noShift', null, '平移：无（原地复制到同一批区块坐标）'));
+    }
+    L.push(T('world.merge.source', null, `源：命中 ${r.source.present} / 缺失 ${r.source.missing} 区块，${fmtSize(r.source.bytes)}，实体 ${r.source.entities}`));
+    if (r.source.broken) L.push(T('world.merge.broken', null, `源里有 ${r.source.broken} 个区块读不出来（已按"会丢东西"处理，不计入可搬内容）`));
+    L.push(T('world.merge.target', null, `目标：新建 ${r.target.create} / 相同 ${r.target.same} / 冲突 ${r.target.conflict}`));
+    L.push(T('world.merge.plan', null, T("pg.L2359C4", null, `待写入 ${r.write.chunks} 区块（相同 ${r.write.same}，跳过 ${r.write.skipped}）`)
+      + (r.syncEntities ? T('world.merge.ents', null, `，实体写入 ${r.write.entityWrite} / 删除 ${r.write.entityDelete}`) : '')));
+    // worldmerge 把预检的硬拦阻写进 warnings 时带了「【必须先解决】」前缀，同时也单独
+    // 放在 precheck.blockers 里。这里前缀只取一次：下面既用它渲染 blockers，也用它
+    // 把 warnings 里那一份挑出来跳过 —— 免得同一句话连着刷两遍。
+    const mustFix = T('world.merge.mustFix', null, '【必须先解决】');
+    if (r.precheck) {
+      const pc = r.precheck;
+      const dv = pc.dataVersion || {};
+      L.push(T('world.merge.preOk', null, T("pg.L2368C5", null, `预检：${pc.ok ? '通过' : '有拦阻'}｜源 DataVersion ${dv.src == null ? '?' : dv.src} → 目标 ${dv.dst == null ? '?' : dv.dst}`)
+        + T("pg.L2369C6", null, `｜目标文件 ${pc.files.checked} 个${pc.files.locked.length ? '（其中 ' + pc.files.locked.length + ' 个写不进去）' : ''}`)));
+      if (pc.lock && pc.lock.present && pc.lock.open) {
+        L.push(T('world.merge.lock', null, `⚠ session.lock 显示目标存档可能正被游戏打开（${pc.lock.via === 'timestamp' ? pc.lock.agoSec + ' 秒前' : pc.lock.mtimeAgoSec + ' 秒前被写过'}）。请先退出游戏。`));
+      }
+      for (const b of (pc.blockers || [])) L.push(`<b>${esc(mustFix)}</b>` + esc(b));
+    }
+    for (const w of (r.warnings || [])) {
+      if (String(w).startsWith(mustFix)) continue;
+      L.push(T('world.merge.warn', null, '⚠ ') + esc(w));
+    }
+    if (r.hotspots && r.hotspots.length) L.push(T('world.merge.hotspots', null, `实体热点 ${r.hotspots.length} 个，最多 ${r.hotspots[0].entities} 个/区块`));
+    return L;
+  }
+  /* ---- 区块状态图（指纹矩阵） ---- */
+  let wmMatrix = null;
+  function wmMatrixDraw(m) {
+    const cv = $('wm-matrix'); if (!cv) return;
+    const lg = $('wm-legend');
+    // 色板按"这块会被怎么处理"给，不是配色好看：新建=蓝、一致=暗、冲突=红（会覆盖）、
+    // 跳过=灰、源里没有=近黑、坏块=橙。
+    const COLOR = { n: '#3b82f6', '=': '#3a4150', '!': '#e5484d', '-': '#6b7280', '.': '#16181d', x: '#f5a524', ' ': '#16181d' };
+    if (!m || !m.cells || !m.cells.length) {
+      wmMatrix = null;
+      if (lg) lg.innerHTML = '';
+      const ctx0 = cv.getContext('2d');
+      const W0 = cv.clientWidth || 600, H0 = cv.clientHeight || 120;
+      if (cv.width !== W0) cv.width = W0; if (cv.height !== H0) cv.height = H0;
+      ctx0.fillStyle = '#0e1014'; ctx0.fillRect(0, 0, W0, H0);
+      $('wm-matrix-tip').textContent = '';
+      return;
+    }
+    wmMatrix = m;
+    if (lg && m.legend) {
+      lg.innerHTML = m.legend.map((e) => `<span style="color:${COLOR[e.ch] || '#888'}">${esc(e.ch)}</span> ${esc(e.label)}`).join(' ｜ ');
+    }
+    const ctx = cv.getContext('2d');
+    const W = cv.clientWidth || 600, H = cv.clientHeight || 120;
+    if (cv.width !== W) cv.width = W; if (cv.height !== H) cv.height = H;
+    ctx.fillStyle = '#0e1014'; ctx.fillRect(0, 0, W, H);
+    // 每个区块格边长：按画布与矩阵尺寸算，至少 1px
+    const cs = Math.max(1, Math.floor(Math.min((W - 8) / m.w, (H - 8) / m.h)));
+    const ox = Math.floor((W - cs * m.w) / 2), oy = Math.floor((H - cs * m.h) / 2);
+    const font = cs >= 11 ? Math.floor(cs * 0.66) + 'px monospace' : null;
+    if (font) { ctx.font = font; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; }
+    for (let z = 0; z < m.cells.length; z++) {
+      const row = m.cells[z];
+      for (let x = 0; x < row.length; x++) {
+        const ch = row[x] || ' ';
+        const px = ox + x * cs, py = oy + z * cs;
+        ctx.fillStyle = COLOR[ch] || '#16181d';
+        ctx.fillRect(px, py, cs, cs);
+        if (font && ch !== ' ' && ch !== '.') {
+          ctx.fillStyle = (ch === '=' || ch === '-') ? '#c9d1d9' : '#0b0d10';
+          ctx.fillText(ch, px + cs / 2, py + cs / 2 + 0.5);
+        }
+      }
+    }
+    cv.dataset.mw = String(m.w); cv.dataset.mh = String(m.h);
+    cv.dataset.cs = String(cs); cv.dataset.ox = String(ox); cv.dataset.oy = String(oy);
+    cv.dataset.cx1 = String(m.cx1); cv.dataset.cz1 = String(m.cz1);
+  }
+  function wmMatrixHover(e) {
+    const cv = $('wm-matrix');
+    if (!cv || !wmMatrix) { $('wm-matrix-tip').textContent = ''; return; }
+    const cs = Number(cv.dataset.cs) || 1;
+    const ox = Number(cv.dataset.ox) || 0, oy = Number(cv.dataset.oy) || 0;
+    const rect = cv.getBoundingClientRect();
+    const x = Math.floor((e.clientX - rect.left - ox) / cs), z = Math.floor((e.clientY - rect.top - oy) / cs);
+    const row = (z >= 0 && z < wmMatrix.cells.length) ? wmMatrix.cells[z] : null;
+    const ch = (row && x >= 0 && x < row.length) ? (row[x] || ' ') : ' ';
+    if (ch === ' ') { $('wm-matrix-tip').textContent = ''; return; }
+    const cx = Number(cv.dataset.cx1) + x, cz = Number(cv.dataset.cz1) + z;
+    const def = (wmMatrix.legend || []).find((l) => l.ch === ch);
+    $('wm-matrix-tip').textContent = T('world.merge.mtip', null, `目标区块 (${cx}, ${cz})：`) + (def ? def.label : '');
   }
 
   /* ---- 地图预览 ---- */
@@ -2001,35 +2542,92 @@
   /** @type {any} */
   let wdbTimer = 0;
   async function wdbPick() { const dir = await wapi.pickDirectory(); if (!dir) return; $('wdb-dir').value = dir; wd.dbDir = dir; }
+  /** 索引全部存档。勾了「强制重扫」就走全量（force），否则按 region 文件指纹增量。 */
   async function wdbIndex() {
     const dir = $('wdb-dir').value.trim(); if (!dir) { $('wdb-info').textContent = T('world.db.needDir', null, '请先选择 .minecraft 目录'); return; }
-    const r = await wapi.worldDbIndex(dir);
+    const force = !!($('wdb-force') && $('wdb-force').checked);
+    $('wdb-info').textContent = T('world.db.scanning', null, '正在扫描…');
+    const r = await wapi.worldDbIndex(dir, { force });
     if (!r || r.error) { $('wdb-info').textContent = T('world.err', null, '错误: ') + (r && r.error); return; }
-    renderDbStats(r.stats); $('wdb-info').textContent = T('world.db.indexed', null, `已索引 ${r.count} 个存档`);
+    renderDbStats(r.stats);
+    const sc = r.scanned || {};
+    // 把"这次到底读了几个文件"如实报出来 —— 增量索引是否真的生效，要看这个数字
+    $('wdb-info').innerHTML = T('world.db.indexed', null, `已索引 ${r.count} 个存档`)
+      + T('world.db.scanDetail', null, `（文件 ${sc.files || 0}：重读 ${sc.parsedFiles || 0} / 复用缓存 ${sc.reusedFiles || 0}；区块 ${sc.chunks || 0}${sc.broken ? '，损坏 ' + sc.broken : ''}）`);
   }
   async function wdbDoSearch() {
     const dir = $('wdb-dir').value.trim(); if (!dir) { $('wdb-info').textContent = T('world.db.needDir', null, '请先选择 .minecraft 目录'); return; }
     const r = await wapi.worldDbSearch(dir, $('wdb-q').value.trim());
     if (!r || r.error) { $('wdb-info').textContent = T('world.err', null, '错误: ') + (r && r.error); return; }
-    renderDbStats(r.stats); renderDbResults(r.results);
-    $('wdb-info').textContent = T('world.db.found', null, `命中 ${r.results.length} 条`);
+    // 检索串本身写错（dim:天界 / near:abc）时单独报，不能混进"没有匹配"里 ——
+    // 否则用户会一直换词去猜，而问题其实在语法上。
+    if (r.searchError) {
+      $('wdb-info').innerHTML = T("pg.L2519C7", null, `<span style="color:#f5a524">${esc(T('world.db.queryErr', null, '检索串有问题：'))}</span>`) + esc(r.searchError);
+    } else {
+      $('wdb-info').innerHTML = T('world.db.found', null, `命中 ${r.total} 条`)
+        + (r.pages > 1 ? T('world.db.pages', null, `，第 ${r.page}/${r.pages} 页`) : '');
+    }
+    renderDbStats(r.stats);
+    renderDbResults(r.results, r);
   }
   function renderDbStats(s) {
     if (!s) { $('wdb-stats').textContent = ''; return; }
-    $('wdb-stats').innerHTML = T('world.db.stats', null, `存档 ${s.saves} 个 · 容器 ${s.totalContainers} 个 · 命名实体 ${s.totalNamedEntities} 个 · 总游戏时长 ${s.playHours} 小时`);
+    const L = [];
+    L.push(T('world.db.stats', null, `存档 ${s.saves} 个 · 容器 ${s.totalContainers} 个 · 命名实体 ${s.totalNamedEntities} 个 · 总游戏时长 ${s.playHours} 小时`));
+    if (s.totalItems != null) {
+      L.push(T('world.db.stats2', null, `物品 ${s.totalItems} 件（${s.totalItemStacks} 堆）· 附魔物品 ${s.totalEnchantedItems} 件 · 命名的 ${s.totalCustomNamedItems} 件`));
+    }
+    if (s.dims) {
+      L.push(T('world.db.stats3', null, `维度分布：主世界 ${s.dims.overworld || 0} · 下界 ${s.dims.nether || 0} · 末地 ${s.dims.end || 0} 个容器`));
+    }
+    if (s.topEnchants && s.topEnchants.length) {
+      L.push(T('world.db.topEnch', null, '常见附魔：') + s.topEnchants.map((e) => esc(e.zh) + '×' + e.count).join('、'));
+    }
+    if (s.savings) {
+      L.push(T('world.db.savings', null, T("pg.L2541C8", null, `本次扫描：${s.savings.parsedFiles} 个文件重读、${s.savings.reusedFiles} 个用缓存；索引覆盖 ${s.indexedChunks} 区块 / ${s.savings.indexMB} MB`)
+        + (s.brokenChunks ? T("pg.L2542C9", null, `，其中 ${s.brokenChunks} 个区块损坏`) : '')));
+    }
+    $('wdb-stats').innerHTML = L.join('<br>');
   }
-  function renderDbResults(res) {
+  /** 维度中文名（worlddb 的 dim 是 'overworld'|'nether'|'end'） */
+  function dimZhOf(d) {
+    if (d === 'overworld') return T('world.dim.overworld', null, '主世界');
+    if (d === 'nether') return T('world.dim.nether', null, '下界');
+    if (d === 'end') return T('world.dim.end', null, '末地');
+    return d || '';
+  }
+  function renderDbResults(res, meta) {
     const box = $('wdb-results'); box.innerHTML = '';
-    if (!res || !res.length) { box.innerHTML = T('world.db.noresult', null, '<div class="empty">没有匹配</div>'); return; }
+    if (!res || !res.length) {
+      box.innerHTML = T('world.db.noresult', null, '<div class="empty">没有匹配</div>');
+      return;
+    }
     for (const r of res) {
       const d = document.createElement('div'); d.className = 'item';
-      if (r.kind === 'container') {
-        const items = (r.items || []).map((it) => esc(it.zh) + (it.enchanted ? '✨' : '') + '×' + it.count).join('、');
-        d.innerHTML = `<div><div class="t">${esc(r.save)} · ${esc(r.type)} <small>(${r.x},${r.y},${r.z})</small></div><div class="s">${items}</div></div>`;
+      const dimZh = dimZhOf(r.dim);
+      const dist = r.dist == null ? '' : T("pg.L2562C10", null, ` · ${r.dist} 格`);
+      const where = `<small>(${r.x},${r.y},${r.z})${dimZh ? ' · ' + esc(dimZh) : ''}${dist}</small>`;
+      if (r.kind === 'entity') {
+        d.innerHTML = T('world.db.entrow', null, `<div><div class="t">${esc(r.save)} · 实体 ${esc(r.type)} ${where}</div><div class="s">${esc(r.name || '')}</div></div>`);
       } else {
-        d.innerHTML = T('world.db.entrow', null, `<div><div class="t">${esc(r.save)} · 实体 ${esc(r.type)} <small>(${r.x},${r.y},${r.z})</small></div><div class="s">${esc(r.name || '')}</div></div>`);
+        const items = (r.items || []).map((it) => esc(it.zh) + (it.enchanted ? '✨' : '') + '×' + it.count).join('、');
+        // 玩家背包 / 末影箱 / 矿车船 与普通容器分开标：前者的位置是"玩家在哪"，
+        // 拿它当箱子坐标去找会扑空
+        const kindZh = r.kind === 'player' ? T('world.db.kPlayer', null, '玩家背包')
+          : r.kind === 'ender_chest' ? T('world.db.kEnder', null, '末影箱')
+            : r.kind === 'entity-container' ? T('world.db.kEntC', null, '载具')
+              : esc(r.type);
+        const total = r.itemTotal ? T('world.db.itemTotal', null, ` · 共 ${r.itemTotal} 件/${r.itemKinds} 种`) : '';
+        d.innerHTML = `<div><div class="t">${esc(r.save)} · ${kindZh} ${where}</div><div class="s">${items}${total}</div></div>`;
       }
       box.appendChild(d);
+    }
+    // 分页：结果多的时候至少要让用户知道"还有多少没显示"
+    if (meta && meta.pages > 1) {
+      const p = document.createElement('div');
+      p.className = 'tip';
+      p.innerHTML = T('world.db.pageTip', null, `第 ${meta.page} / ${meta.pages} 页（共 ${meta.total} 条）—— 用 limit: 和 page: 翻页，例如 `) + T("pg.L2583C11", null, '<code>钻石 limit:50 page:2</code>');
+      box.appendChild(p);
     }
   }
 
@@ -2039,8 +2637,29 @@
     $('wv-track').onclick = wvTrack; $('wv-commit').onclick = wvCommit;
     $('wv-checkout').onclick = wvCheckout; $('wv-gc').onclick = wvGc;
     $('wv-branch-create').onclick = wvBranchCreate; $('wv-branch-switch').onclick = wvBranchSwitch;
+
+    /* 回放与合并（V5 第一组） */
+    $('wvr-browse').onclick = wvrPick; $('wvr-refresh').onclick = wvrRefresh;
+    $('wvr-blame-btn').onclick = wvrBlame; $('wvr-play-btn').onclick = wvrPlay;
+    for (const id of ['wvr-x', 'wvr-y', 'wvr-z']) $(id).oninput = wvrInvalidate;
+    $('wvr-slider').oninput = () => wvrShowFrame(Math.trunc(Number($('wvr-slider').value)) || 0);
+    $('wvr-first').onclick = () => wvrShowFrame(0);
+    $('wvr-prev').onclick = () => wvrStep(-1);
+    $('wvr-next').onclick = () => wvrStep(1);
+    $('wvr-last').onclick = () => wvrShowFrame(wvr.frames.length - 1);
+    $('wvr-diff').onchange = async () => {
+      // 切换"只看改动"要重新取上一帧做对照，不能只重画
+      if (wvr.frame && wvr.frame.id) await wvrLoadFrame(wvr.frame.id);
+    };
+    $('wvr-canvas').onmousemove = wvrHover;
+    $('wvr-canvas').onclick = wvrClickCanvas;
+    $('wvr-merge-plan').onclick = wvrMergePlan; $('wvr-merge-apply').onclick = wvrMergeApply;
+    wvrRefresh();
+    wvrDrawCanvas();
     $('wm-from-browse').onclick = () => wmPick('from'); $('wm-to-browse').onclick = () => wmPick('to');
     $('wm-plan').onclick = wmPlan; $('wm-apply').onclick = wmApply;
+    $('wm-matrix').onmousemove = wmMatrixHover;
+    $('wm-matrix').onmouseleave = () => { $('wm-matrix-tip').textContent = ''; };
     $('wmp-browse').onclick = wmpPick; $('wmp-scan').onclick = wmpScan;
     const cv = $('wmp-canvas');
     cv.onmousemove = wmpHover; cv.onwheel = wmpZoomEv;
@@ -2171,9 +2790,9 @@
       ? T('perf.tune.size', { c: size.saveChunks || 0, e: size.entityMax || 0 }, `按存档规模：${size.saveChunks || 0} 区块 · 实体峰值 ${size.entityMax || 0}`)
       : T('perf.tune.nosize', null, '未提供存档目录，按通用配置建议');
     $('pt-args').textContent = `${t.args}\n\n${t.tier ? t.tier.label : ''} · ${t.gc}\n${info}`;
-    $('pt-reasons').innerHTML = T('perf.tune.reasons', null, `<b>依据：</b><br>` + (t.reasons || []).map((r) => '· ' + esc(r)).join('<br>'));
+    $('pt-reasons').innerHTML = T('perf.tune.reasons', null, T("pg.L2533C43", null, `<b>依据：</b><br>`) + (t.reasons || []).map((r) => '· ' + esc(r)).join('<br>'));
     $('pt-warnings').innerHTML = (t.warnings && t.warnings.length)
-      ? T('perf.tune.warn', null, `<b>注意：</b><br>` + t.warnings.map((w) => '· ' + esc(w)).join('<br>'))
+      ? T('perf.tune.warn', null, T("pg.L2535C44", null, `<b>注意：</b><br>`) + t.warnings.map((w) => '· ' + esc(w)).join('<br>'))
       : '';
   }
 
@@ -2459,10 +3078,10 @@
     openModal(res.name || T('mk.preview.detail', null, '包详情'), (body) => {
       body.innerHTML = T('mk.preview.detailbody', null,
         (res.icon ? `<div class="mk-detail-icon"><img src="${res.icon}" alt="" /></div>` : '') +
-        `<div class="kv"><span>${T('mk.preview.path', null, '路径')}</span><code>${esc(res.path)}</code></div>` +
-        `<div class="kv"><span>${T('mk.preview.format', null, '数据包格式')}</span>${res.format === null || res.format === undefined ? '—' : res.format}</div>` +
-        `<div class="kv"><span>${T('mk.preview.mcver', null, '支持版本')}</span>${esc(res.mc ? String(res.mc) : '—')}</div>` +
-        `<div class="kv"><span>${T('mk.preview.isdir', null, '形态')}</span>${res.isDir ? T('mk.preview.dir', null, '文件夹') : T('mk.preview.zip', null, 'zip 压缩包')}</div>` +
+        T("pg.L2821C45", null, `<div class="kv"><span>${T('mk.preview.path', null, '路径')}</span><code>${esc(res.path)}</code></div>`) +
+        T("pg.L2822C46", null, `<div class="kv"><span>${T('mk.preview.format', null, '数据包格式')}</span>${res.format === null || res.format === undefined ? '—' : res.format}</div>`) +
+        T("pg.L2823C47", null, `<div class="kv"><span>${T('mk.preview.mcver', null, '支持版本')}</span>${esc(res.mc ? String(res.mc) : '—')}</div>`) +
+        T("pg.L2824C48", null, `<div class="kv"><span>${T('mk.preview.isdir', null, '形态')}</span>${res.isDir ? T('mk.preview.dir', null, '文件夹') : T('mk.preview.zip', null, 'zip 压缩包')}</div>`) +
         (res.desc ? `<div class="mk-detail-desc">${esc(res.desc)}</div>` : '') +
         (res.note ? `<div class="tip">${esc(res.note)}</div>` : ''));
     });
@@ -2616,12 +3235,12 @@
       }
       const m = res.manifest;
       body.innerHTML = T('mk.pack.inspectbody', { n: res.files }, 
-        `<div class="kv"><span>${T('mk.pack.namelbl', null, '包名')}</span>${esc(m.name || '')}</div>` +
-        `<div class="kv"><span>${T('mk.pack.authorlbl', null, '作者')}</span>${esc(m.author || '—')}</div>` +
-        `<div class="kv"><span>${T('mk.pack.mclbl', null, 'MC 版本')}</span>${esc((m.game && m.game.minecraft) || '—')}</div>` +
-        `<div class="kv"><span>${T('mk.pack.loaderlbl', null, '载入器')}</span>${esc((m.game && m.game.loader) || '—')} ${esc((m.game && m.game.loaderVersion) || '')}</div>` +
-        `<div class="kv"><span>${T('mk.pack.modlbl', null, 'Mod 数')}</span>${(m.mods || []).length}</div>` +
-        (res.mods.length ? `<div class="tip">${T('mk.pack.attached', { n: res.mods.length }, `自带 ${res.mods.length} 个 mod 文件`)}</div>` : '') +
+        T("pg.L2978C49", null, `<div class="kv"><span>${T('mk.pack.namelbl', null, '包名')}</span>${esc(m.name || '')}</div>`) +
+        T("pg.L2979C50", null, `<div class="kv"><span>${T('mk.pack.authorlbl', null, '作者')}</span>${esc(m.author || '—')}</div>`) +
+        T("pg.L2980C51", null, `<div class="kv"><span>${T('mk.pack.mclbl', null, 'MC 版本')}</span>${esc((m.game && m.game.minecraft) || '—')}</div>`) +
+        T("pg.L2981C52", null, `<div class="kv"><span>${T('mk.pack.loaderlbl', null, '载入器')}</span>${esc((m.game && m.game.loader) || '—')} ${esc((m.game && m.game.loaderVersion) || '')}</div>`) +
+        T("pg.L2982C53", null, `<div class="kv"><span>${T('mk.pack.modlbl', null, 'Mod 数')}</span>${(m.mods || []).length}</div>`) +
+        (res.mods.length ? T("pg.L2983C54", null, `<div class="tip">${T('mk.pack.attached', { n: res.mods.length }, `自带 ${res.mods.length} 个 mod 文件`)}</div>`) : '') +
         `<div class="mk-modlist">${(m.mods || []).map((x) => `<div>${esc(x.name || x.id)} <span class="dim">${esc(x.version || '')}</span></div>`).join('')}</div>`);
     });
   }
@@ -3359,6 +3978,190 @@
     }
   }
 
+  /* ============ 云端页（PeBble Cloud：云账号 + 云存档） ============
+   * 这一页所有请求都走「返回 {ok:false,error,code}」而不是抛 reject（见 ipc/cloud.js），
+   * 所以下面每一步都要判断 ok===false，别拿成功分支当默认路径。 */
+  /** 事件只绑一次：initCloud 每次进入页面都会调，重复绑会叠加触发 */
+  let cloudBound = false;
+
+  function cloudSay(text, bad) {
+    const el = $('cloud-state');
+    el.textContent = text || '';
+    el.style.color = bad ? 'var(--bad)' : '';
+  }
+
+  /** 出错时把话带给用户；返回给调用方方便提前 return */
+  function cloudFail(r, fallback) {
+    const msg = (r && r.error) || fallback || T('cloud.unknown', null, '未知错误');
+    cloudSay(msg, true);
+    return msg;
+  }
+
+  /** 登录态 + 服务端地址 + 「凭证存不存得住」的如实提示 */
+  function cloudRenderStatus(st) {
+    const notes = [];
+    if (st.loggedIn) {
+      cloudSay(T('cloud.loggedAs', null, `已登录：${st.username}`), false);
+      if (!st.persistent) {
+        notes.push(T('cloud.notPersist', null, '⚠ 当前系统不支持加密存储：登录凭证只在本次运行内有效，重启后要重新登录（不会明文写到磁盘）。'));
+      } else if (st.savedAt) {
+        notes.push(T('cloud.savedAt', null, `登录凭证已加密保存在本机（${fmtTime(st.savedAt)}）。`));
+      }
+    } else {
+      cloudSay(T('cloud.notLoggedIn', null, '未登录'), false);
+      if (!st.canEncrypt) {
+        notes.push(T('cloud.noEncrypt', null, '⚠ 当前系统不支持加密存储：能登录，但凭证存不住，重启后要重新登录。'));
+      }
+    }
+    notes.unshift(T('cloud.endpoint', null, `服务端：${st.endpoint}`));
+    $('cloud-endpoint').innerHTML = notes.map(esc).join('<br />');
+  }
+
+  function cloudRenderKeys(keys) {
+    const box = $('cloud-keys');
+    box.innerHTML = '';
+    if (!keys.length) {
+      box.innerHTML = T('cloud.noKey', null, '<div class="empty">云端还没有任何条目<br /><small>备份账户配置或上传存档后会出现在这里</small></div>');
+      return;
+    }
+    for (const k of keys) {
+      const row = document.createElement('div');
+      row.className = 'item';
+      const name = document.createElement('div');
+      name.innerHTML = `<div class="t">${esc(k)}</div>`;
+      const ops = document.createElement('div');
+      ops.className = 'ops';
+      const del = document.createElement('button');
+      del.className = 'ghost-btn danger';
+      del.textContent = T('common.delete', null, '删除');
+      del.onclick = () => cloudDeleteKey(k);
+      ops.appendChild(del);
+      row.appendChild(name);
+      row.appendChild(ops);
+      box.appendChild(row);
+    }
+  }
+
+  async function cloudList() {
+    const r = await window.api.cloudList();
+    if (r && r.ok === false) { cloudFail(r); $('cloud-keys').innerHTML = ''; return null; }
+    const keys = Array.isArray(r) ? r : [];
+    cloudRenderKeys(keys);
+    return keys;
+  }
+
+  async function cloudProfilesInfo() {
+    const r = await window.api.cloudProfilesInfo();
+    if (!r || r.ok === false) { cloudFail(r); return; }
+    if (!r.exists) {
+      $('cloud-profiles').textContent = T('cloud.noProfiles', null, '云端还没有账户配置备份。');
+      return;
+    }
+    const names = (r.names || []).map((a) => a.name || T('cloud.anon', null, '未命名')).join('、');
+    $('cloud-profiles').textContent = T('cloud.profilesInfo', null, `云端那份：${r.accounts} 个账户（${names || T('cloud.anon', null, '未命名')}）`);
+  }
+
+  /** 刷新登录态；已登录时顺带把云存档列表拉出来 */
+  async function cloudRefresh() {
+    const st = await window.api.cloudStatus();
+    if (!st || st.ok === false) { cloudFail(st, T('cloud.statusFail', null, '读取登录状态失败')); return null; }
+    cloudRenderStatus(st);
+    if (st.loggedIn) {
+      await cloudList();
+      await cloudProfilesInfo();
+    } else {
+      cloudRenderKeys([]);
+      $('cloud-profiles').textContent = '';
+    }
+    return st;
+  }
+
+  async function cloudDoLogin(isRegister) {
+    const u = $('cloud-user').value.trim();
+    const p = $('cloud-pass').value;
+    if (!u || !p) { cloudSay(T('cloud.needInput', null, '请先填用户名和密码'), true); return; }
+    cloudSay(isRegister ? T('cloud.reging', null, '正在注册…') : T('cloud.loging', null, '正在登录…'), false);
+    const r = isRegister ? await window.api.cloudRegister(u, p) : await window.api.cloudLogin(u, p);
+    $('cloud-pass').value = '';   // 密码用完即清，不留在输入框里
+    if (!r || !r.username) { cloudFail(r); return; }
+    await cloudRefresh();
+    S().setStatus(T('cloud.welcome', null, `已登录云端：${r.username}`), '');
+  }
+
+  async function cloudDoLogout() {
+    const r = await window.api.cloudLogout();
+    if (r && r.ok === false) { cloudFail(r); return; }
+    await cloudRefresh();
+    S().setStatus(T('cloud.bye', null, '已退出云端账号'), '');
+  }
+
+  async function cloudTest() {
+    cloudSay(T('cloud.testing', null, '正在连接云端…'), false);
+    const r = await window.api.cloudCheck();
+    if (!r) { cloudFail(r); return; }
+    if (r.reachable && r.loggedIn) {
+      cloudSay(T('cloud.checkOk', null, `连接正常，云端有 ${r.count} 个条目`), false);
+    } else if (r.reachable) {
+      cloudSay(T('cloud.checkNoLogin', null, '云端连得上，但当前登录态无效或还没登录'), true);
+    } else {
+      cloudFail(r, T('cloud.unreachable', null, '连不上云端'));
+    }
+    await cloudRefresh();
+  }
+
+  async function cloudUploadProfiles() {
+    if (!confirm(T('cloud.upConfirm', null, '把本机账户配置（含各账户的登录令牌）上传到云端？'))) return;
+    const r = await window.api.cloudUploadProfiles();
+    if (!r || r.ok === false) { cloudFail(r); return; }
+    $('cloud-profiles').textContent = T('cloud.upOk', null, `已把 ${r.accounts} 个账户备份到云端。`);
+    await cloudList();
+  }
+
+  async function cloudRestoreProfiles() {
+    if (!confirm(T('cloud.restoreConfirm', null, '用云端那份覆盖本机账户配置？本机现有的账户列表会被整体替换。'))) return;
+    const data = await window.api.cloudDownloadProfiles();
+    if (!data || data.ok === false) { cloudFail(data, T('cloud.downFail', null, '云端没有可恢复的账户配置')); return; }
+    const r = await window.api.accountStoreSave(data);
+    if (!r || r.ok === false) { cloudFail(r); return; }
+    const n = (data.accounts || []).length;
+    $('cloud-profiles').textContent = T('cloud.restoreOk', null, `已用云端配置覆盖本机，共 ${n} 个账户。`)
+      // 系统不支持加密时 securestore 会**丢掉**敏感字段而不是明文落盘，这里必须说清楚，
+      // 否则用户会以为「恢复了但还得重新登录」是 bug。
+      + (r.degraded && r.dropped ? T('cloud.restoreDropped', null, `⚠ 当前系统不支持加密存储，有 ${r.dropped} 项登录令牌没有被写入，这些账户需要重新登录。`) : '');
+    await cloudProfilesInfo();
+    if (window.Pages && window.Pages.refreshAccounts) await window.Pages.refreshAccounts();
+  }
+
+  async function cloudDeleteKey(key) {
+    const k = (key || $('cloud-key').value.trim()).trim();
+    if (!k) { cloudSay(T('cloud.needKey', null, '请先填要删除的云存档名'), true); return; }
+    if (!confirm(T('cloud.delConfirm', null, `确定删除云端的「${k}」？删掉就恢复不了了。`))) return;
+    const r = await window.api.cloudDelete(k);
+    if (r && r.ok === false) { cloudFail(r); return; }
+    if (!key) $('cloud-key').value = '';
+    S().setStatus(T('cloud.delOk', null, `已删除云端条目：${k}`), '');
+    await cloudList();
+    await cloudProfilesInfo();
+  }
+
+  async function initCloud() {
+    if (!cloudBound) {
+      cloudBound = true;
+      $('cloud-login').onclick = () => cloudDoLogin(false);
+      $('cloud-register').onclick = () => cloudDoLogin(true);
+      $('cloud-logout').onclick = cloudDoLogout;
+      $('cloud-check').onclick = cloudTest;
+      $('cloud-list-btn').onclick = cloudList;
+      $('cloud-del-key').onclick = () => cloudDeleteKey('');
+      $('cloud-up-profiles').onclick = cloudUploadProfiles;
+      $('cloud-info-profiles').onclick = cloudProfilesInfo;
+      $('cloud-restore-profiles').onclick = cloudRestoreProfiles;
+      // 密码框回车直接登录，省一次点击
+      $('cloud-pass').onkeydown = (e) => { if (e.key === 'Enter') cloudDoLogin(false); };
+    }
+    await cloudRefresh();
+  }
+
   window.Pages = {
     refreshInstalled, versionOp, downloadOfficial, loadLoaderVersions, installLoader,
     refreshRes, refreshSaves, refreshShots, organizeShots, refreshLogs, resDir, fmtSize, fmtTime, esc, blockIcon,
@@ -3377,6 +4180,8 @@
     /* 实例账户绑定（V4 第五组 R14）
      *   实体清理（R11）与合成规划（R12）挂在世界页、运行时监控（R13）挂在性能页，
      *   都由各自的 initWorld / initPerf 顺带绑定，不必单独导出。 */
-    refreshBindings
+    refreshBindings,
+    /* 云端页（PeBble Cloud：云账号 + 云存档） */
+    initCloud
   };
 })();

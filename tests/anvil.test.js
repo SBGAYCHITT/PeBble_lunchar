@@ -648,6 +648,57 @@ console.log('\n--- 存档级接口 ---');
     assert.ok(r.chunks > 0);
   });
 
+  /* ---------- 存档自检（decode→re-encode 逐字节比对） ---------- */
+  console.log('\n--- 存档自检 ---');
+
+  await ta('自检：合成存档全部字节一致', async () => {
+    const r = await anvil.selfCheckSave(save, { limit: 0 });
+    assert.strictEqual(r.ok, true, r.error);
+    assert.strictEqual(r.errors.length, 0, JSON.stringify(r.errors));
+    assert.strictEqual(r.skipped.length, 0, JSON.stringify(r.skipped.slice(0, 3)));
+    assert.strictEqual(r.mismatches.length, 0, JSON.stringify(r.mismatches.slice(0, 3)));
+    assert.ok(r.chunks >= 6, '只检查了 ' + r.chunks + ' 个区块');
+    assert.strictEqual(r.identical, r.chunks, '有区块没算成一致');
+    assert.strictEqual(r.truncated, false);
+  });
+
+  await ta('自检：limit 生效且如实标 truncated', async () => {
+    const r = await anvil.selfCheckSave(save, { limit: 2 });
+    assert.strictEqual(r.chunks, 2);
+    assert.strictEqual(r.truncated, true, '截断了却没说');
+  });
+
+  await ta('自检：三个维度 + entities 都扫到', async () => {
+    const r = await anvil.selfCheckSave(save, { limit: 0 });
+    assert.ok(r.byDim.overworld, '主世界没扫到');
+    assert.ok(r.byDim.nether, '下界没扫到');
+    assert.ok(r.byDim.end, '末地没扫到');
+    assert.ok(r.byDim.overworld.files >= 3, '主世界应有 3 个 region 文件');
+  });
+
+  await ta('自检：目录不存在时返回 ok:false，不是抛异常', async () => {
+    const r = await anvil.selfCheckSave(path.join(TMP, 'nope'), {});
+    assert.strictEqual(r.ok, false);
+    assert.ok(String(r.error || '').length > 0);
+  });
+
+  await ta('自检：区块被改坏后如实记进 skipped，绝不算"通过"', async () => {
+    const bad = path.join(TMP, 'save-bad');
+    fs.cpSync(save, bad, { recursive: true });
+    const f = path.join(bad, 'region', 'r.0.0.mca');
+    const buf = fs.readFileSync(f);
+    const e = anvil.parseHeader(buf).entries[0];
+    assert.ok(!e.empty, '槽位 0 应该是非空的，用例前提不成立');
+    // 翻掉压缩数据的第一个字节 → zlib 必然解不开
+    buf[e.offset * anvil.SECTOR + 4 + 5] ^= 0xff;
+    fs.writeFileSync(f, buf);
+
+    const r = await anvil.selfCheckSave(bad, { limit: 0 });
+    assert.strictEqual(r.ok, true, '整体流程不该因为一个坏区块就失败');
+    assert.ok(r.skipped.length > 0, '区块坏了解不开，却一条 skipped 都没报');
+    assert.strictEqual(r.identical, r.chunks, '坏的那个区块不该被算进 identical');
+  });
+
   /* ---------- 收尾 ---------- */
   fs.rmSync(TMP, { recursive: true, force: true });
 

@@ -43,6 +43,7 @@
         <button class="nav-item" data-page="saves"><span class="ni">■</span><span data-i18n="nav.saves">存档</span></button>
         <button class="nav-item" data-page="shots"><span class="ni">◫</span><span data-i18n="nav.shots">截图</span></button>
         <button class="nav-item" data-page="account"><span class="ni">☺</span><span data-i18n="nav.account">账户</span></button>
+        <button class="nav-item" data-page="cloud"><span class="ni">☁</span><span data-i18n="nav.cloud">云端</span></button>
         <button class="nav-item" data-page="lab"><span class="ni">⚗</span><span data-i18n="nav.lab">调优</span></button>
         <button class="nav-item" data-page="logs"><span class="ni">≡</span><span data-i18n="nav.logs">日志</span></button>
         <button class="nav-item" data-page="settings"><span class="ni">⚙</span><span data-i18n="nav.settings">设置</span></button>
@@ -309,6 +310,47 @@
           </div>
         </div></section>
 
+        <!-- ============ 云端（PeBble Cloud：云账号 + 云存档，对接账户迁移） ============ -->
+        <section class="page" id="page-cloud"><div class="world-wrap">
+          <div class="wtab active stack" id="cloud-pane">
+            <div class="card">
+              <div class="card-head"><span data-i18n="cloud.account" data-i18n-fb="云端账号">云端账号</span>
+                <span class="row"><button class="ghost-btn" id="cloud-check" data-i18n="cloud.test" data-i18n-fb="测试连接">测试连接</button></span></div>
+              <div class="row wrap"><label data-i18n="cloud.user" data-i18n-fb="用户名">用户名</label>
+                <input id="cloud-user" class="inp" placeholder="3 位以上" spellcheck="false" autocomplete="off" /></div>
+              <div class="row wrap"><label data-i18n="cloud.pass" data-i18n-fb="密码">密码</label>
+                <input id="cloud-pass" class="inp" type="password" placeholder="6 位以上" autocomplete="off" /></div>
+              <div class="row wrap">
+                <button class="primary-btn" id="cloud-login" data-i18n="cloud.login" data-i18n-fb="登录">登录</button>
+                <button class="ghost-btn" id="cloud-register" data-i18n="cloud.register" data-i18n-fb="注册新账号">注册新账号</button>
+                <button class="ghost-btn danger" id="cloud-logout" data-i18n="cloud.logout" data-i18n-fb="退出登录">退出登录</button>
+                <span class="tip inline" id="cloud-state"></span>
+              </div>
+              <p class="tip" id="cloud-endpoint"></p>
+              <p class="tip" data-i18n="cloud.note" data-i18n-fb="密码只用于向云端换取登录凭证，不会保存在本地。登录凭证走系统加密存储（Windows DPAPI），只存在于主进程，不会传到这里来。">密码只用于向云端换取登录凭证，不会保存在本地。登录凭证走系统加密存储（Windows DPAPI），只存在于主进程，不会传到这里来。</p>
+            </div>
+
+            <div class="card">
+              <div class="card-head"><span data-i18n="cloud.mig" data-i18n-fb="账户迁移">账户迁移</span></div>
+              <p class="tip" data-i18n="cloud.migNote" data-i18n-fb="把本机的账户配置备份到云端，换台机器就能恢复。注意：这份数据里包含各账户的登录令牌（accessToken / refreshToken），上传即代表你同意把它存到云端。">把本机的账户配置备份到云端，换台机器就能恢复。注意：这份数据里包含各账户的登录令牌（accessToken / refreshToken），上传即代表你同意把它存到云端。</p>
+              <div class="row wrap">
+                <button class="ghost-btn" id="cloud-up-profiles" data-i18n="cloud.up" data-i18n-fb="备份到云端">备份到云端</button>
+                <button class="ghost-btn" id="cloud-info-profiles" data-i18n="cloud.info" data-i18n-fb="查看云端那份">查看云端那份</button>
+                <button class="ghost-btn danger" id="cloud-restore-profiles" data-i18n="cloud.restore" data-i18n-fb="用云端覆盖本机">用云端覆盖本机</button>
+              </div>
+              <div id="cloud-profiles" class="tip"></div>
+            </div>
+
+            <div class="card fill scroll">
+              <div class="card-head"><span data-i18n="cloud.blobs" data-i18n-fb="云存档">云存档</span>
+                <span class="row"><button class="ghost-btn" id="cloud-list-btn" data-i18n="cloud.refresh" data-i18n-fb="刷新列表">刷新列表</button></span></div>
+              <div class="row wrap"><input id="cloud-key" class="inp" placeholder="云存档名，如 world-backup" spellcheck="false" />
+                <button class="ghost-btn danger" id="cloud-del-key" data-i18n="cloud.delKey" data-i18n-fb="删除这一项">删除这一项</button></div>
+              <div id="cloud-keys" class="list"></div>
+            </div>
+          </div>
+        </div></section>
+
         <!-- ============ JVM 调优实验室 ============ -->
         <section class="page" id="page-lab"><div class="card fill scroll">
           <div class="card-head"><span>JVM A/B 调优实验室</span></div>
@@ -401,6 +443,21 @@
               <button id="btn-update-check" class="ghost-btn" data-i18n="sys.checkUpdate">检查更新</button></div>
             </div>
             <div class="set-row"><label></label><span id="update-result" class="tip"></span></div>
+            <div class="set-row" id="update-actions" hidden><label></label>
+              <div class="row">
+                <button id="btn-update-download" class="primary-btn" data-i18n="upd.download">下载并安装</button>
+                <button id="btn-update-open" class="ghost-btn" data-i18n="upd.openPageBtn" hidden>打开下载页</button>
+                <button id="btn-update-cancel" class="ghost-btn" data-i18n="upd.cancel" hidden>取消</button>
+                <button id="btn-update-apply" class="primary-btn" data-i18n="upd.apply" hidden>立即重启安装</button>
+                <button id="btn-update-folder" class="ghost-btn" data-i18n="upd.showFolder">打开下载目录</button>
+              </div>
+            </div>
+            <div class="set-row" id="update-progress-row" hidden><label></label>
+              <div class="path-row">
+                <progress id="update-bar" class="upd-bar" value="0" max="100"></progress>
+                <span id="update-progress-text" class="tip"></span>
+              </div>
+            </div>
           </div>
           <div class="set-group">
             <div class="set-title">Java 运行环境</div>
@@ -432,7 +489,7 @@
               <button class="ghost-btn" id="btn-open-mcsite">Minecraft 官网</button>
             </div>
             <p class="tip">功能覆盖：离线/外置/微软账户、版本下载、Forge/Fabric/Quilt/NeoForge/OptiFine 自动安装、
-              Mod/资源包/光影管理、存档与截图管理、崩溃日志查看、版本隔离与导入导出。<br />
+              Mod/资源包/光影管理、存档与截图管理、崩溃日志查看、版本隔离与导入导出、世界版本控制与区域搬运、跨存档检索、云账号与云存档。<br />
               按需求不包含联机相关功能（局域网/P2P 联机）。</p>
           </div>
         </div></section>
@@ -440,6 +497,7 @@
         <section class="page" id="page-world"><div class="world-wrap">
           <div class="tabs" id="world-tabs">
             <button class="tab active" data-wtab="ver">版本控制</button>
+            <button class="tab" data-wtab="replay">回放与合并</button>
             <button class="tab" data-wtab="merge">区域搬运</button>
             <button class="tab" data-wtab="map">地图预览</button>
             <button class="tab" data-wtab="db">全局检索</button>
@@ -471,6 +529,65 @@
             </div>
           </div></div>
 
+          <!-- 回放与合并（V5 第一组：世界版本控制完整版） -->
+          <div class="wtab" id="wtab-replay"><div class="col-left scroll">
+            <div class="card">
+              <div class="card-head"><span>定位存档</span>
+                <span class="row"><button class="ghost-btn" id="wvr-browse">浏览</button><button class="ghost-btn" id="wvr-refresh">刷新</button></span></div>
+              <div id="wvr-dir" class="tip">还没选存档。这里与「版本控制」页共用同一个存档目录。</div>
+            </div>
+            <div class="card">
+              <div class="card-head"><span>方块坐标（世界坐标，不是区块）</span></div>
+              <div class="row wrap">
+                <label>X</label><input id="wvr-x" class="inp tiny" type="number" value="0" />
+                <label>Y</label><input id="wvr-y" class="inp tiny" type="number" value="64" />
+                <label>Z</label><input id="wvr-z" class="inp tiny" type="number" value="0" />
+              </div>
+              <div class="row wrap">
+                <button class="primary-btn" id="wvr-blame-btn">这格是谁改的</button>
+                <button class="ghost-btn" id="wvr-play-btn">看这一格回放</button>
+              </div>
+              <div id="wvr-blame-state" class="tip">填好坐标后点上面的按钮。</div>
+            </div>
+            <div class="card">
+              <div class="card-head"><span>这格的改动史</span></div>
+              <div id="wvr-blame" class="list mini"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><span>分支合并</span></div>
+              <div class="row wrap"><label>我方</label><select id="wvr-ours" class="sel"></select></div>
+              <div class="row wrap"><label>并入</label><select id="wvr-theirs" class="sel"></select></div>
+              <div class="row wrap"><label>冲突时</label>
+                <select id="wvr-strategy" class="sel">
+                  <option value="conflict">停下来问我（推荐）</option>
+                  <option value="ours">保留我方</option>
+                  <option value="theirs">采用对方</option>
+                </select>
+              </div>
+              <div class="row wrap">
+                <button class="ghost-btn" id="wvr-merge-plan" disabled>预览合并</button>
+                <button class="primary-btn" id="wvr-merge-apply" disabled>执行合并</button>
+              </div>
+              <div id="wvr-merge-status" class="tip"></div>
+            </div>
+          </div><div class="col-right">
+            <div class="card">
+              <div class="card-head"><span>时间轴回放</span>
+                <span class="row"><button class="ghost-btn" id="wvr-first">⇤</button><button class="ghost-btn" id="wvr-prev">◀</button><button class="ghost-btn" id="wvr-next">▶</button><button class="ghost-btn" id="wvr-last">⇥</button></span></div>
+              <div class="row wrap"><input id="wvr-slider" type="range" min="0" max="0" value="0" step="1" disabled />
+                <label class="chk"><input id="wvr-diff" type="checkbox" />只标出这一步改动的格子</label></div>
+              <div id="wvr-tip" class="tip">先在左边选好坐标，再点「看这一格回放」。</div>
+            </div>
+            <div class="card fill">
+              <canvas id="wvr-canvas" class="frame-canvas"></canvas>
+              <div id="wvr-frametip" class="canvas-tip"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><span>合并计划 / 冲突</span></div>
+              <div id="wvr-merge" class="install-log" style="max-height:190px"></div>
+            </div>
+          </div></div>
+
           <!-- 区域搬运 -->
           <div class="wtab stack" id="wtab-merge"><div class="card">
             <div class="card-head"><span>选择源 / 目标存档目录</span></div>
@@ -480,11 +597,22 @@
               <input id="wm-x1" class="inp tiny" type="number" placeholder="x1" /><input id="wm-z1" class="inp tiny" type="number" placeholder="z1" />
               <input id="wm-x2" class="inp tiny" type="number" placeholder="x2" /><input id="wm-z2" class="inp tiny" type="number" placeholder="z2" />
             </div>
+            <div class="row wrap"><label>平移(方块)</label>
+              <input id="wm-dx" class="inp tiny" type="number" step="16" placeholder="dx" /><input id="wm-dz" class="inp tiny" type="number" step="16" placeholder="dz" />
+              <span class="tip inline" data-i18n="world.merge.shiftTip" data-i18n-fb="只能填 16 的倍数：区块是最小搬运单位，垂直方向不动。留空就是原地复制。">只能填 16 的倍数：区块是最小搬运单位，垂直方向不动。留空就是原地复制。</span>
+            </div>
             <div class="row wrap"><label>模式</label>
+              <select id="wm-dim" class="sel"><option value="overworld">主世界</option><option value="nether">下界</option><option value="end">末地</option></select>
               <select id="wm-mode" class="sel"><option value="replace">覆盖同名区块</option><option value="skip-existing">跳过已有</option></select>
               <label class="chk"><input id="wm-ent" type="checkbox" checked />同步实体</label>
+              <label class="chk"><input id="wm-force" type="checkbox" />预检有拦阻也照样执行</label>
               <button class="ghost-btn" id="wm-plan">预览</button><button class="primary-btn" id="wm-apply">执行搬运</button>
             </div>
+          </div><div class="card">
+            <div class="card-head"><span data-i18n="world.merge.matrix" data-i18n-fb="区块状态图">区块状态图</span>
+              <span class="tip inline" id="wm-legend"></span></div>
+            <canvas id="wm-matrix" class="world-canvas" style="height:132px"></canvas>
+            <div id="wm-matrix-tip" class="canvas-tip"></div>
           </div><div class="card fill scroll">
             <div class="card-head"><span>预览 / 结果</span></div>
             <div id="wm-result" class="install-log"></div>
@@ -507,10 +635,11 @@
           <!-- 全局检索 -->
           <div class="wtab stack" id="wtab-db"><div class="card">
             <div class="card-head"><span>选择 .minecraft 目录</span>
-              <span class="row"><input id="wdb-dir" class="inp" placeholder=".minecraft 目录" spellcheck="false" /><button class="ghost-btn" id="wdb-browse">浏览</button><button class="ghost-btn" id="wdb-index">索引全部存档</button></span></div>
+              <span class="row"><input id="wdb-dir" class="inp" placeholder=".minecraft 目录" spellcheck="false" /><button class="ghost-btn" id="wdb-browse">浏览</button><label class="chk"><input id="wdb-force" type="checkbox" />强制重扫</label><button class="ghost-btn" id="wdb-index">索引全部存档</button></span></div>
             <div class="row wrap"><input id="wdb-q" class="inp" placeholder="搜索物品或实体，如「附魔」「钻石剑」「阿强」" spellcheck="false" />
               <button class="ghost-btn" id="wdb-search">搜索</button><span class="tip inline" id="wdb-info"></span>
             </div>
+            <div class="row wrap"><span class="tip inline" data-i18n="world.db.dslTip" data-i18n-fb="可以用 dim:主世界/下界/末地、save:存档名、kind:container/entity、near:me,64、ench:锋利、exact:stone、sort:count/distance、limit:50、page:2 组合筛选。引号里的词会被当一个整体。">可以用 dim:主世界/下界/末地、save:存档名、kind:container/entity、near:me,64、ench:锋利、exact:stone、sort:count/distance、limit:50、page:2 组合筛选。引号里的词会被当一个整体。</span></div>
           </div><div class="card">
             <div class="card-head"><span>统计</span></div>
             <div id="wdb-stats" class="tip"></div>
