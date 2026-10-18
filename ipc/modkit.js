@@ -178,7 +178,7 @@ module.exports = function register(ctx) {
       data: JSON.stringify({
         pack: {
           pack_format: pf,
-          description: opt.name || 'Pebble Lunchar 汉化补全包'
+          description: opt.name || 'Pebble Launcher 汉化补全包'
         }
       }, null, 2)
     }, {
@@ -380,9 +380,9 @@ module.exports = function register(ctx) {
 /** 汉化资源包里的说明文件 */
 function buildPackReadme(details, opt) {
   const lines = [
-    String((opt && opt.name) || 'Pebble Lunchar 汉化补全包'),
+    String((opt && opt.name) || 'Pebble Launcher 汉化补全包'),
     '',
-    '这个资源包由 Pebble Lunchar 从本机 mod 的语言文件中提取缺口、用内置离线词典补齐后生成。',
+    '这个资源包由 Pebble Launcher 从本机 mod 的语言文件中提取缺口、用内置离线词典补齐后生成。',
     '**它不会修改任何 mod 本体** —— 想还原直接删掉这个包即可。',
     '',
     '— 收录情况 —',

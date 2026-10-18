@@ -1,4 +1,4 @@
-// Pebble Lunchar - 性能诊断引擎
+// Pebble Launcher - 性能诊断引擎
 //
 // 和 crashdoctor.js 的分工：
 //   crashdoctor  = 游戏**崩了**之后解释为什么崩（exception / 致命错）

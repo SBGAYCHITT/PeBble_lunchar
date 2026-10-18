@@ -1,4 +1,4 @@
-// Pebble Lunchar - 账户：离线 / 外置 Yggdrasil / 微软设备码登录
+// Pebble Launcher - 账户：离线 / 外置 Yggdrasil / 微软设备码登录
 const crypto = require('crypto');
 const https = require('https');
 
@@ -24,7 +24,7 @@ function offlineAccount(name) {
 async function postJson(url, body, headers) {
   const res = await fetch(url, {
     method: 'POST',
-    headers: Object.assign({ 'Content-Type': 'application/json', 'User-Agent': 'PebbleLunchar/1.0' }, headers || {}),
+    headers: Object.assign({ 'Content-Type': 'application/json', 'User-Agent': 'PebbleLauncher/1.0' }, headers || {}),
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(30000)
   });
@@ -35,7 +35,7 @@ async function postJson(url, body, headers) {
 }
 
 async function getJson(url, headers) {
-  const res = await fetch(url, { headers: Object.assign({ 'User-Agent': 'PebbleLunchar/1.0' }, headers || {}), signal: AbortSignal.timeout(30000) });
+  const res = await fetch(url, { headers: Object.assign({ 'User-Agent': 'PebbleLauncher/1.0' }, headers || {}), signal: AbortSignal.timeout(30000) });
   const txt = await res.text();
   let json;
   try { json = JSON.parse(txt); } catch { json = { raw: txt }; }

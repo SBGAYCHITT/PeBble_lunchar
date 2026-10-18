@@ -1,4 +1,4 @@
-/* Pebble Lunchar Lite（Tauri 版）产物核验
+/* Pebble Launcher Lite（Tauri 版）产物核验
  *
  * 为什么要这么写：这台机器上没有任何可用的 Java（.minecraft/runtime 里的 java.exe 是
  * 0 字节占位），所以「真的把游戏拉起来」这一步无法验证。退一步核验两件确定的事：
@@ -7,7 +7,7 @@
  * 参数拼装是整个启动器唯一「错了就闪退、且难查」的地方，这两项正好覆盖它。
  *
  * 用法（在 lite-tauri/ 下）：
- *   target/release/pebble-lunchar-lite.exe --dry-run <游戏目录> <版本 id> target/dry-<版本>.json
+ *   target/release/pebble-launcher-lite.exe --dry-run <游戏目录> <版本 id> target/dry-<版本>.json
  *   node verify-lite.js
  * 注意：本脚本不自己去 spawn exe —— 沙箱会拦 node 的子进程调用（EBUSY）。
  */
@@ -18,7 +18,7 @@ const os = require('os');
 const MCD = path.join(os.homedir(), 'AppData/Roaming/.minecraft');
 // 相对脚本自身而不是 cwd：否则在仓库根目录跑会报「exe 不存在」，
 // 看起来像产物没编出来，其实只是找错了地方。
-const EXE = path.join(__dirname, 'target', 'release', 'pebble-lunchar-lite.exe');
+const EXE = path.join(__dirname, 'target', 'release', 'pebble-launcher-lite.exe');
 
 let pass = 0, fail = 0;
 const ok = (m) => { console.log('  ok   ' + m); pass++; };
@@ -32,8 +32,8 @@ if (!fs.existsSync(EXE)) {
   process.exit(1);
 }
 const size = fs.statSync(EXE).size;
-// dist-lite7/Pebble-Lunchar-Lite.exe —— 上一版 Electron 版 Lite，这才是要对比的对象。
-// （不要拿 dist7/Pebble-Lunchar.exe 的 78.9 MB 比，那是全功能版。）
+// dist-lite7/Pebble-Launcher-Lite.exe —— 上一版 Electron 版 Lite，这才是要对比的对象。
+// （不要拿 dist7/Pebble-Launcher.exe 的 78.9 MB 比，那是全功能版。）
 const LITE_OLD = 67209968;
 chk(size < 15 * 1048576, 'exe ' + (size / 1048576).toFixed(2) + ' MB（< 15 MB）');
 console.log('  对比      上一版 Lite（Electron）' + (LITE_OLD / 1048576).toFixed(1)

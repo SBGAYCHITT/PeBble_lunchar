@@ -78,7 +78,7 @@ const must = (v, msg) => { if (!v) throw new Error(msg || '期望为真'); retur
   });
   await t('entdoc-report 能生成纯文本', async () => {
     const r = await H['entdoc-report'](null, { name: 'X', summary: { total: 3 } });
-    must(r.ok && r.text.indexOf('Pebble Lunchar') >= 0);
+    must(r.ok && r.text.indexOf('Pebble Launcher') >= 0);
   });
 
   console.log('=== craftplanner ===');

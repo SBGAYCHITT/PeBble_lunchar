@@ -1,7 +1,7 @@
-# Pebble Lunchar 伴随指标 Mod（参考实现）
+# Pebble Launcher 伴随指标 Mod（参考实现）
 
 把游戏运行时的 **FPS / TPS / MSPT / 堆内存 / 实体数 / 区块数** 每秒写一行 JSON，
-追加到游戏目录下的 `pebble-metrics.jsonl`，供 Pebble Lunchar 启动器实时读取并画曲线；
+追加到游戏目录下的 `pebble-metrics.jsonl`，供 Pebble Launcher 启动器实时读取并画曲线；
 同时提供一个可用 **F9** 开关的游戏内悬浮窗。
 
 ## ⚠️ 重要：这份代码**没有编译验证过**
@@ -71,7 +71,7 @@ companion-mod/
 ├── settings.gradle               仓库源（Fabric maven）
 ├── gradle.properties             ← 改这里填版本号
 └── src/main/
-    ├── java/com/pebble/lunchar/metrics/PebbleMetricsClient.java   采集 + HUD
+    ├── java/com/pebble/launcher/metrics/PebbleMetricsClient.java   采集 + HUD
     └── resources/
         ├── fabric.mod.json       Mod 元数据与入口点
         └── assets/pebble-metrics/lang/{zh_cn,en_us}.json          按键名翻译

@@ -38,7 +38,7 @@
       'tray.launch': '启动游戏', 'tray.launching': '正在启动…',
       'tray.running': '游戏运行中（{{n}}）', 'tray.stopall': '结束全部游戏',
       'tray.openDir': '打开游戏目录', 'tray.autostart': '开机自动启动',
-      'tray.quit': '退出启动器', 'tray.tooltip': 'Pebble Lunchar · {{name}}{{ver}}{{run}}'
+      'tray.quit': '退出启动器', 'tray.tooltip': 'Pebble Launcher · {{name}}{{ver}}{{run}}'
     },
     'en-US': {
       'nav.launch': 'Launch', 'nav.versions': 'Versions', 'nav.instances': 'Instances', 'nav.mods': 'Mods',
@@ -65,7 +65,7 @@
       'tray.launch': 'Launch game', 'tray.launching': 'Launching…',
       'tray.running': '{{n}} game(s) running', 'tray.stopall': 'Stop all games',
       'tray.openDir': 'Open game folder', 'tray.autostart': 'Launch at login',
-      'tray.quit': 'Quit launcher', 'tray.tooltip': 'Pebble Lunchar · {{name}}{{ver}}{{run}}'
+      'tray.quit': 'Quit launcher', 'tray.tooltip': 'Pebble Launcher · {{name}}{{ver}}{{run}}'
     }
   };
 

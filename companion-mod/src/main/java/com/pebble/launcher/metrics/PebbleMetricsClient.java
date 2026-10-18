@@ -1,4 +1,4 @@
-package com.pebble.lunchar.metrics;
+package com.pebble.launcher.metrics;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -18,7 +18,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 
 /**
- * Pebble Lunchar 伴随指标 Mod（Fabric 客户端）—— **参考实现**
+ * Pebble Launcher 伴随指标 Mod（Fabric 客户端）—— **参考实现**
  *
  * 职责：每秒把 FPS / TPS / 堆内存 / 实体数 / 区块数写成一行 JSON，
  * 追加到游戏目录下的 pebble-metrics.jsonl，供启动器实时读取并画曲线。

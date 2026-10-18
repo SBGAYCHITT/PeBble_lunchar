@@ -70,7 +70,7 @@ const electronStub = {
   app: {
     getPath: (n) => (n === 'userData' ? tmpRoot : path.join(tmpRoot, n)),
     getVersion: () => '0.0.0-test',
-    getName: () => 'pebble-lunchar',
+    getName: () => 'pebble-launcher',
     isPackaged: false,
     whenReady: () => Promise.resolve(),
     on: noop,

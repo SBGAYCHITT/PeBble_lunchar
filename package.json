@@ -1,7 +1,7 @@
 {
-  "name": "pebble-lunchar",
+  "name": "pebble-launcher",
   "version": "5.0.0",
-  "description": "Pebble Lunchar - Minecraft offline launcher",
+  "description": "Pebble Launcher - Minecraft offline launcher",
   "main": "main.js",
   "author": "Felix",
   "license": "MIT",
@@ -39,8 +39,8 @@
     "typescript": "^5.9.3"
   },
   "build": {
-    "appId": "com.felix.pebblelunchar",
-    "productName": "Pebble Lunchar",
+    "appId": "com.felix.pebblelauncher",
+    "productName": "Pebble Launcher",
     "directories": {
       "output": "dist"
     },
@@ -106,7 +106,7 @@
       "icon": "build/icon.ico"
     },
     "portable": {
-      "artifactName": "Pebble-Lunchar.exe"
+      "artifactName": "Pebble-Launcher.exe"
     }
   }
 }

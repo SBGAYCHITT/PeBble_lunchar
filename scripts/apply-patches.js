@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Pebble Lunchar - node_modules 本地补丁管理器
+ * Pebble Launcher - node_modules 本地补丁管理器
  *
  * 背景：electron-builder 打包时会去下载 winCodeSign，其中的 darwin 符号链接在
  * 无管理员权限的 Windows 上无法解压，导致打包失败。我们对 app-builder-lib 打了两处补丁绕开。

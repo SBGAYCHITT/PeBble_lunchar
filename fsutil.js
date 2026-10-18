@@ -1,4 +1,4 @@
-// Pebble Lunchar - 文件系统小工具
+// Pebble Launcher - 文件系统小工具
 //
 // 存在的原因：Node 22 在 Windows 上，fs.cpSync 往「含非 ASCII 字符的目标路径」
 // 递归复制时会直接段错误退出（进程崩溃，try/catch 拦不住）。

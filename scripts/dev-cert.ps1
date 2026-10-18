@@ -1,7 +1,7 @@
 ﻿#requires -version 5.1
 <#
 .SYNOPSIS
-  Pebble Lunchar 开发/内测用自签名代码签名证书的生成、信任与清理。
+  Pebble Launcher 开发/内测用自签名代码签名证书的生成、信任与清理。
 
 .DESCRIPTION
   生成一张自签名代码签名证书，并把它装进信任存储，让「装了这张证书的机器」认可用它签出来的 exe。
@@ -33,7 +33,7 @@ param(
   [switch]$Machine,
   [switch]$Remove,
   [switch]$Status,
-  [string]$Subject = 'CN=Pebble Lunchar Dev, O=Felix, C=CN',
+  [string]$Subject = 'CN=Pebble Launcher Dev, O=Felix, C=CN',
   [int]$Years = 3
 )
 

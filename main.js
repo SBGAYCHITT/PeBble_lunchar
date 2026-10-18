@@ -1,8 +1,38 @@
-// Pebble Lunchar 主进程：窗口 / 托盘 / 生命周期装配。
+// Pebble Launcher 主进程：窗口 / 托盘 / 生命周期装配。
 // 所有 ipcMain.handle 已按域拆到 ./ipc（见 ipc/index.js），这里只负责提供它们需要的上下文。
 const { app, BrowserWindow, ipcMain, dialog, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
+
+/* 改名迁移：Pebble Lunchar → Pebble Launcher。
+   打包后 userData 目录名跟着 productName 走，改完名会指向一个空目录 ——
+   玩家的设置、实例列表、自带 Java、时光机仓库全在旧目录里。
+   所以第一次启动时整体搬过去，只搬一次；旧版还开着导致搬不动，就继续用旧目录。 */
+(function adoptLegacyUserData() {
+  try {
+    const appData = app.getPath('appData');
+    // 打包版按 productName 建目录，开发时按 package.json 的 name 建 —— 两种都要接上
+    const pairs = [
+      ['Pebble Lunchar', 'Pebble Launcher'],
+      ['pebble-lunchar', 'pebble-launcher'],
+    ];
+    for (const [oldName, newName] of pairs) {
+      const prevDir = path.join(appData, oldName);
+      const nextDir = path.join(appData, newName);
+      if (!fs.existsSync(nextDir) && fs.existsSync(prevDir)) {
+        try {
+          fs.renameSync(prevDir, nextDir);
+        } catch {
+          // 旧版还开着、文件被占用：这一次仍用旧目录，下次启动再搬
+          app.setPath('userData', prevDir);
+          return;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[main] 用户数据目录迁移失败，继续使用默认目录：', e && e.message);
+  }
+})();
 const mcapi = require('./mcapi');
 // Lite 版会把多开登记一起裁掉。取不到就当「没有并行多开」，
 // 托盘的运行数显示 0、停止项点了也没反应 —— 但不能因此让主进程起不来。

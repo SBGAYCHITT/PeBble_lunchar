@@ -1,8 +1,8 @@
 [package]
-name = "pebble-lunchar-lite"
+name = "pebble-launcher-lite"
 version = "4.2.0"
 edition = "2021"
-description = "Pebble Lunchar Lite - Rust + WebView2 轻量启动器"
+description = "Pebble Launcher Lite - Rust + WebView2 轻量启动器"
 publish = false
 
 [build-dependencies]

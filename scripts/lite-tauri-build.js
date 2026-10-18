@@ -8,7 +8,7 @@
  *   真正能用的二进制在 `~/.rustup/toolchains/<toolchain>/bin/` 下面，
  *   所以这里会按优先级自己去找，找不到再退回 PATH。
  *
- * 产出：dist-lite7/Pebble-Lunchar-Lite.exe（单文件，运行时用系统自带 WebView2）
+ * 产出：dist-lite7/Pebble-Launcher-Lite.exe（单文件，运行时用系统自带 WebView2）
  * 用法：node scripts/lite-tauri-build.js [--verify]
  */
 const fs = require('fs');
@@ -18,10 +18,10 @@ const { spawnSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 const PROJ = path.join(ROOT, 'lite-tauri');
-const EXE_NAME = 'pebble-lunchar-lite.exe';
+const EXE_NAME = 'pebble-launcher-lite.exe';
 const BUILT = path.join(PROJ, 'target', 'release', EXE_NAME);
 const DIST = path.join(ROOT, 'dist-lite7');
-const OUT = path.join(DIST, 'Pebble-Lunchar-Lite.exe');
+const OUT = path.join(DIST, 'Pebble-Launcher-Lite.exe');
 
 function die(m) { console.error('✗ ' + m); process.exit(1); }
 function mb(n) { return (n / 1048576).toFixed(2) + ' MB'; }

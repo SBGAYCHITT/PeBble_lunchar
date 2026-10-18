@@ -1,4 +1,4 @@
-// Pebble Lunchar - 存档时光机
+// Pebble Launcher - 存档时光机
 //
 // 与 PCL2 / HMCL / Prism 的关键差异：它们的"备份"都是**全量拷贝**，
 // 一个 1GB 的存档存 20 份就是 20GB。这里做**内容寻址的块级增量去重**：

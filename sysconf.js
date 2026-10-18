@@ -19,7 +19,7 @@ function loginItemArgs(enable, hidden) {
  */
 function shortcutTargets(o) {
   const opt = /** @type {any} */ (o || {});
-  const name = opt.name || 'Pebble Lunchar';
+  const name = opt.name || 'Pebble Launcher';
   const kinds = opt.kinds || ['desktop', 'startMenu'];
   const out = [];
   for (const kind of kinds) {

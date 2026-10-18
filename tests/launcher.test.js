@@ -223,7 +223,7 @@ const VARS = {
   natives_directory: 'C:\\natives',
   classpath: 'a.jar;b.jar',
   launcher_version: '3.0.0',
-  launcher_name: 'PebbleLunchar',
+  launcher_name: 'PebbleLauncher',
   classpath_separator: ';',
   library_directory: 'C:\\libs'
 };

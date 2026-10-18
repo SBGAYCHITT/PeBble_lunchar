@@ -33,7 +33,7 @@ DefenderCalled         = true
 `CurrentUser` 里的自签名根**不被 SAC 认可**，且自签名证书没有任何云信誉。结论：**重签名没用**，
 分发要过 SAC 必须上真正受信任的 CA（买 OV，或开源走 SignPath）。
 
-> **内外层都会被拦**：`make-exe.js` 先签 win-unpacked 再打包，所以内层 `dist/win-unpacked/Pebble Lunchar.exe`
+> **内外层都会被拦**：`make-exe.js` 先签 win-unpacked 再打包，所以内层 `dist/win-unpacked/Pebble Launcher.exe`
 > **也是自签名**（不是未签名），SAC 同样拦；"绿色版 zip 免拦 / 内层免拦"不成立——SAC 拦的是任何不满足
 > 「受信任 CA 链 + 云信誉」的可执行文件，与是否 zip、是否带 MOTW 无关。本机调试要么关 SAC，要么上真证书。
 
@@ -110,7 +110,7 @@ powershell -ExecutionPolicy Bypass -File scripts\dev-cert.ps1 -Machine
    set SIGNPATH=1
    set SIGNPATH_API_TOKEN=xxxx
    set SIGNPATH_ORG_ID=yyyy
-   set SIGNPATH_PROJECT_SLUG=pebble-lunchar
+   set SIGNPATH_PROJECT_SLUG=pebble-launcher
    set SIGNPATH_POLICY_SLUG=release-signing
    set SIGNPATH_ARTIFACT_CONFIG_SLUG=zip-authenticode   # 可选，不填用项目默认
    npm run dist        # make-exe.js 检测到 SIGNPATH=1 会自动走 SignPath，不再本地自签名
@@ -118,7 +118,7 @@ powershell -ExecutionPolicy Bypass -File scripts\dev-cert.ps1 -Machine
    背后做的事（`scripts/signpath-sign.js`，纯 Node 实现，无需额外依赖）：
    - 把 `win-unpacked` 打成 zip → 提交 `SigningRequests/SubmitWithArtifact` → 轮询状态
      （卡在 `WaitingForApproval` 时去后台点 Approve）→ 下载签名后的 zip 解压覆盖
-   - 再把外层 `Pebble-Lunchar.exe` 打成 zip → 同样流程签一遍
+   - 再把外层 `Pebble-Launcher.exe` 打成 zip → 同样流程签一遍
 6. 想看脚本干到哪一步：`node scripts/signpath-sign.js` 会打印提交 / 状态 / 下载全过程
 
 **在 GitHub Actions 里自动签（推荐）** —— 仓库已含 `.github/workflows/release.yml`：
@@ -130,7 +130,7 @@ powershell -ExecutionPolicy Bypass -File scripts\dev-cert.ps1 -Machine
 |---|---|
 | `SIGNPATH_API_TOKEN` | SignPath 后台签发的 API token（CI 用户） |
 | `SIGNPATH_ORG_ID` | 你的 organizationId |
-| `SIGNPATH_PROJECT_SLUG` | 项目 slug（如 `pebble-lunchar`） |
+| `SIGNPATH_PROJECT_SLUG` | 项目 slug（如 `pebble-launcher`） |
 | `SIGNPATH_POLICY_SLUG` | 签名策略 slug（如 `release-signing`） |
 | `SIGNPATH_ARTIFACT_CONFIG_SLUG` | 构件配置 slug（可选，不填用项目默认） |
 
@@ -171,7 +171,7 @@ npm run sign -- --force                  # 已有签名的也重签
         ↓
 ② makensis 把它们打进安装包
         ↓
-③ 签外层 dist/Pebble-Lunchar.exe
+③ 签外层 dist/Pebble-Launcher.exe
 ```
 
 `①` 必须在 `②` 之前 —— 否则打进安装包的是未签名副本。跳过签名用 `SKIP_SIGN=1`。
@@ -179,7 +179,7 @@ npm run sign -- --force                  # 已有签名的也重签
 ### 检测某个产物会不会被拦
 
 ```bash
-npm run sac                        # 默认测 dist/Pebble-Lunchar.exe
+npm run sac                        # 默认测 dist/Pebble-Launcher.exe
 npm run sac -- -Target "路径\xxx.exe" -WaitSec 60
 ```
 
@@ -192,7 +192,7 @@ npm run sac -- -Target "路径\xxx.exe" -WaitSec 60
 剩下 6 个都需要签：
 
 ```
-Pebble Lunchar.exe        ← 我们的应用主体
+Pebble Launcher.exe        ← 我们的应用主体
 ffmpeg.dll                ← Electron 官方发布，本来就是未签名的
 libEGL.dll                ← 同上
 libGLESv2.dll             ← 同上

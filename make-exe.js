@@ -13,16 +13,16 @@ const ROOT = process.cwd();
  *         PL_SRC=dist2/win-unpacked node make-exe.js
  */
 const SRC = path.resolve(ROOT, process.env.PL_SRC || 'dist/win-unpacked');
-const OUT = path.resolve(ROOT, process.env.PL_OUT || 'dist/Pebble-Lunchar.exe');
+const OUT = path.resolve(ROOT, process.env.PL_OUT || 'dist/Pebble-Launcher.exe');
 const NSI = path.join(ROOT, 'tools/pl.nsi');
 const MAKENSIS = path.join(ROOT, 'tools/makensis.exe');
 
 /* 应用标识可用环境变量覆盖（默认值 = 原来的硬编码，标准版行为完全不变）。
    Lite 版必须换 INSTDIRNAME：否则它和标准版装进同一个目录，互相覆盖对方的文件，
    用户装完 Lite 再打开标准版的快捷方式，起来的其实是 Lite。 */
-const APPNAME = process.env.PL_APPNAME || 'Pebble Lunchar';
-const EXENAME = process.env.PL_EXENAME || 'Pebble Lunchar.exe';
-const INSTDIRNAME = process.env.PL_INSTDIR || 'PebbleLunchar';
+const APPNAME = process.env.PL_APPNAME || 'Pebble Launcher';
+const EXENAME = process.env.PL_EXENAME || 'Pebble Launcher.exe';
+const INSTDIRNAME = process.env.PL_INSTDIR || 'PebbleLauncher';
 
 // 是否走 SignPath 免费签名（开源路线）。不设（默认）则沿用本地自签名（scripts/sign.js）。
 const USE_SIGNPATH = process.env.SIGNPATH === '1';
@@ -101,7 +101,7 @@ const BUILDVER = pkg.version + '.' + new Date().toISOString().replace(/[-:TZ.]/g
 
 // Windows 的版本资源必须是 4 段数字（X.Y.Z.B，每段 0-65535）。
 // 不写这个的话，用户右键「属性 → 详细信息」是空的 —— 下到手里没法确认是哪个版本，
-// 排查问题时也少一条线索（内层的 Pebble Lunchar.exe 由 electron-builder 填好了，
+// 排查问题时也少一条线索（内层的 Pebble Launcher.exe 由 electron-builder 填好了，
 // 但用户拿到的是外层这个单文件）。
 const VER4 = (pkg.version.replace(/[^\d.]/g, '').split('.').concat(['0', '0', '0']).slice(0, 4)
   .map((n) => String(Math.min(65535, parseInt(n, 10) || 0))).join('.'));

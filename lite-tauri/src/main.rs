@@ -1,4 +1,4 @@
-//! Pebble Lunchar Lite —— Rust + WebView2 版启动器。
+//! Pebble Launcher Lite —— Rust + WebView2 版启动器。
 //!
 //! 与 Electron 版的分工不变：这一层只负责「读版本 JSON → 拼启动命令 → 起进程」，
 //! 界面仍然是 HTML/CSS，跑在系统自带的 WebView2 里。
@@ -64,7 +64,7 @@ struct AppInfo {
 #[tauri::command]
 fn app_info(state: State<AppState>) -> AppInfo {
     AppInfo {
-        name: "Pebble Lunchar Lite".into(),
+        name: "Pebble Launcher Lite".into(),
         version: env!("CARGO_PKG_VERSION").into(),
         runtime: format!("Rust {} · WebView2", rustc_version_hint()),
         default_mc_dir: store::default_mc_dir(),
@@ -698,5 +698,5 @@ fn main() {
             win_close,
         ])
         .run(tauri::generate_context!())
-        .expect("Pebble Lunchar Lite 启动失败");
+        .expect("Pebble Launcher Lite 启动失败");
 }

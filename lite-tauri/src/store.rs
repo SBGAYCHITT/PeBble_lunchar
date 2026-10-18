@@ -1,7 +1,7 @@
 //! 轻量配置持久化：设置 + 离线账户。
 //!
 //! 存储位置用 Tauri 的 `app_data_dir()`（Windows 上是
-//! `%APPDATA%\com.sbgaychitt.pebblelunchar.lite\`），**不再往 %LOCALAPPDATA% 里
+//! `%APPDATA%\com.sbgaychitt.pebblelauncher.lite\`），**不再往 %LOCALAPPDATA% 里
 //! 塞一份 200 MB 的运行时副本** —— 这是旧 Electron 版被诟病的一点。
 //!
 //! 两个 JSON 分开存：设置是「单条记录，整存整取」，账户是「列表，按名字合并」，

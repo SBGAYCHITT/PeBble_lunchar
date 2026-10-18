@@ -9,7 +9,7 @@ use crate::store::Settings;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-pub const LAUNCHER_NAME: &str = "PebbleLuncharLite";
+pub const LAUNCHER_NAME: &str = "PebbleLauncherLite";
 pub const LAUNCHER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub struct LaunchPlan {

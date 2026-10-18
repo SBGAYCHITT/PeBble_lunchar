@@ -9,7 +9,7 @@
  *
  * 用法：
  *   1. WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222 \
- *        ./Pebble-Lunchar-Lite.exe
+ *        ./Pebble-Launcher-Lite.exe
  *   2. node probe-ui.js
  */
 const fs = require('fs');
@@ -86,7 +86,7 @@ const get = (p) => new Promise((res, rej) => {
   const chk = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); c ? pass++ : fail++; };
 
   console.log('\n=== DOM ===');
-  chk((await evalJs('document.title')) === 'Pebble Lunchar Lite',
+  chk((await evalJs('document.title')) === 'Pebble Launcher Lite',
     'title = ' + JSON.stringify(await evalJs('document.title')));
   const nav = await evalJs("document.querySelectorAll('.nav-item').length");
   chk(nav === 5, '导航 5 项（实为 ' + nav + '）');

@@ -1,4 +1,4 @@
-// Pebble Lunchar - 账户头像 / 皮肤渲染图抓取
+// Pebble Launcher - 账户头像 / 皮肤渲染图抓取
 //
 // 为什么走主进程抓再转 data URL：渲染层开了 CSP，`<img src="https://crafatar.com/...">`
 // 会被拦掉（在线仓库那会儿已经踩过一次）。所以这里统一在主进程 fetch 成 base64
@@ -12,7 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const UA = 'PebbleLunchar/1.0';
+const UA = 'PebbleLauncher/1.0';
 const TIMEOUT = 12000;
 const MAX_BYTES = 2 * 1024 * 1024;      // 头像再大就离谱了
 const CACHE_TTL_MS = 7 * 24 * 3600 * 1000;

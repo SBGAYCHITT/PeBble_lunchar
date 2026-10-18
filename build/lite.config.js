@@ -10,8 +10,8 @@
  *   node scripts/make-lite.js                      # 先生成 build/lite/index.html
  *   PL_OUT_DIR=dist-lite node node_modules/electron-builder/out/cli/cli.js \
  *     --win --x64 --dir --config build/lite.config.js --config.directories.output=dist-lite
- *   PL_SRC=dist-lite/win-unpacked PL_OUT=dist-lite/Pebble-Lunchar-Lite.exe \
- *     PL_INSTDIR=PebbleLuncharLite node make-exe.js
+ *   PL_SRC=dist-lite/win-unpacked PL_OUT=dist-lite/Pebble-Launcher-Lite.exe \
+ *     PL_INSTDIR=PebbleLauncherLite node make-exe.js
  *
  * 语言包不用 electronLanguages 配置项：electron-builder 内部会一次性 rm 掉 53 个 .pak，
  * 撞上沙箱「单轮批量删除 50 项」的守卫，packaging 直接失败。
@@ -40,11 +40,11 @@ const CORE = [
 ];
 
 module.exports = {
-  appId: 'com.felix.pebblelunchar',
+  appId: 'com.felix.pebblelauncher',
   /* productName 刻意与标准版保持一致：Electron 拿它当 userData 目录名
-     （%APPDATA%\Pebble Lunchar），两版共用同一份账户 / 设置 / 已下载的 Java。
+     （%APPDATA%\Pebble Launcher），两版共用同一份账户 / 设置 / 已下载的 Java。
      改这里会让 Lite 变成"另一台机器"，玩家得重新登录 —— 那不是我们想要的精简。 */
-  productName: 'Pebble Lunchar',
+  productName: 'Pebble Launcher',
   // 输出目录可用 PL_OUT_DIR 覆盖：沙箱对「单轮批量删除 50 项」有守卫，
   // 已存在的输出目录被 emptyDir 清理时会直接失败，这时换个新目录重建即可。
   directories: { output: process.env.PL_OUT_DIR || 'dist-lite' },
@@ -65,5 +65,5 @@ module.exports = {
     target: ['portable'],
     icon: 'build/icon.ico'
   },
-  portable: { artifactName: 'Pebble-Lunchar-Lite.exe' }
+  portable: { artifactName: 'Pebble-Launcher-Lite.exe' }
 };

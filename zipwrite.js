@@ -1,4 +1,4 @@
-// Pebble Lunchar - 最小 ZIP 写入器（生产模块）
+// Pebble Launcher - 最小 ZIP 写入器（生产模块）
 //
 // 为什么不用系统 tar：
 //   Windows 自带的 bsdtar 能靠 `-a -cf x.zip` 生成 zip，看着很方便。

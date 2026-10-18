@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Pebble Lunchar Lite",
+  "productName": "Pebble Launcher Lite",
   "version": "4.2.0",
-  "identifier": "com.sbgaychitt.pebblelunchar.lite",
+  "identifier": "com.sbgaychitt.pebblelauncher.lite",
   "build": {
     "frontendDist": "ui"
   },
@@ -11,7 +11,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Pebble Lunchar Lite",
+        "title": "Pebble Launcher Lite",
         "width": 1180,
         "height": 760,
         "minWidth": 960,

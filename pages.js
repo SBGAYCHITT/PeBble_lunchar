@@ -1,4 +1,4 @@
-// Pebble Lunchar - 各功能页逻辑（版本 / 资源 / 存档 / 截图 / 日志）
+// Pebble Launcher - 各功能页逻辑（版本 / 资源 / 存档 / 截图 / 日志）
 (function () {
   const T = (key, params, fb) => (window.I18N ? window.I18N.t(key, params, fb) : (fb != null ? fb : key));
   /** 在线仓库的安装进度回调只允许绑一次。放闭包变量而不是 window.__xxx：

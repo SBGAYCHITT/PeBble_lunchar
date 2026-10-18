@@ -1,4 +1,4 @@
-// Pebble Lunchar - Mod 汉化补全（V4 第四组 · R17）
+// Pebble Launcher - Mod 汉化补全（V4 第四组 · R17）
 //
 // 要解决的问题：英文 mod 一大堆，中文玩家看不懂物品名、方块名、配置项。
 // 社区做法是「下载汉化资源包」，但那是别人做好的、覆盖不全、版本对不上。
@@ -224,7 +224,7 @@ const SKIP_PATTERNS = [
 ];
 
 const SKIP_WORDS = new Set([
-  'pebble', 'lunchar', 'minecraft', 'mod', 'mods', 'fabric', 'forge', 'neoforge',
+  'pebble', 'launcher', 'minecraft', 'mod', 'mods', 'fabric', 'forge', 'neoforge',
   'quilt', 'java', 'api', 'json', 'nbt', 'ui', 'gui', 'hud', 'id', 'ip', 'url',
   'fps', 'tps', 'kb', 'mb', 'gb', 'ok'
 ]);

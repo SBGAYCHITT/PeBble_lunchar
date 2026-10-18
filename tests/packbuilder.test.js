@@ -409,7 +409,7 @@ t('buildManifest：基本字段齐全', () => {
     loaderVersion: '0.15.0', note: '备注'
   });
   eq(m.formatVersion, 1);
-  eq(m.generator, 'Pebble Lunchar');
+  eq(m.generator, 'Pebble Launcher');
   eq(m.name, '测试包');
   eq(m.author, 'Felix');
   eq(m.note, '备注');

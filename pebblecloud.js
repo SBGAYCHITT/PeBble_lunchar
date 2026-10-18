@@ -274,7 +274,7 @@ async function req(method, p, body, opt) {
   // 这条判据失效 —— 已登录账号 A 时用错密码去登账号 B，服务端回 401 密码错误，
   // 带了旧 token 就会被误报成「登录已过期」，还会顺手把 A 的登录态清掉。
   const usedToken = !(opt && opt.noAuth) && !!(session && session.token);
-  const headers = { 'Content-Type': 'application/json', 'User-Agent': 'PebbleLunchar/1.0' };
+  const headers = { 'Content-Type': 'application/json', 'User-Agent': 'PebbleLauncher/1.0' };
   if (usedToken) headers.Authorization = 'Bearer ' + session.token;
 
   let res;

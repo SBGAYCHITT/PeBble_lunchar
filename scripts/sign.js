@@ -30,7 +30,7 @@ const { spawnSync } = require('child_process');
 const ROOT = path.resolve(__dirname, '..');
 const DIST = path.join(ROOT, 'dist');
 const UNPACKED = path.join(DIST, 'win-unpacked');
-const OUTER_EXE = path.join(DIST, 'Pebble-Lunchar.exe');
+const OUTER_EXE = path.join(DIST, 'Pebble-Launcher.exe');
 const SIGNING_DIR = path.join(ROOT, '.signing');
 const DEV_THUMB_FILE = path.join(SIGNING_DIR, 'dev-thumbprint.txt');
 
@@ -42,7 +42,7 @@ const TS_SERVERS = (process.env.SIGN_TIMESTAMP_URL ? [process.env.SIGN_TIMESTAMP
   'http://tsa.starfieldtech.com',
 ]);
 
-const DESCRIPTION = 'Pebble Lunchar';
+const DESCRIPTION = 'Pebble Launcher';
 
 // 本机沙箱（以及某些受控环境）会拒绝为子进程创建 stdin 管道，导致 spawnSync 直接 EBUSY。
 // 统一显式声明 stdio：stdin 走 NUL，stdout/stderr 走管道。

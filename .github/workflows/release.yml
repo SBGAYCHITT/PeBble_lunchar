@@ -63,7 +63,7 @@ jobs:
       - name: 校验签名
         shell: pwsh
         run: |
-          $exe = "dist/Pebble-Lunchar.exe"
+          $exe = "dist/Pebble-Launcher.exe"
           if (-not (Test-Path $exe)) { Write-Error "产物不存在: $exe"; exit 1 }
           $sig = Get-AuthenticodeSignature $exe
           Write-Host ("Status : " + $sig.Status)
@@ -74,8 +74,8 @@ jobs:
       - name: 上传构建产物（Artifact）
         uses: actions/upload-artifact@v4
         with:
-          name: Pebble-Lunchar-signed
-          path: dist/Pebble-Lunchar.exe
+          name: Pebble-Launcher-signed
+          path: dist/Pebble-Launcher.exe
           if-no-files-found: error
 
       - name: 发布到 Release
@@ -89,9 +89,9 @@ jobs:
           # 如果 Release 不存在则创建，已存在则上传/覆盖资产
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag "dist/Pebble-Lunchar.exe" `
-              --title "Pebble Lunchar $tag" `
+            gh release create $tag "dist/Pebble-Launcher.exe" `
+              --title "Pebble Launcher $tag" `
               --notes "Minecraft 离线启动器（免安装单文件，双击即用，Windows 10/11 x64）。`n`n### Code signing policy`nFree code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org)"
           } else {
-            gh release upload $tag "dist/Pebble-Lunchar.exe" --clobber
+            gh release upload $tag "dist/Pebble-Launcher.exe" --clobber
           }

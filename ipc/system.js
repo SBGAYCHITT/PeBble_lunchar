@@ -59,10 +59,10 @@ module.exports = function register(ctx) {
   ipcMain.handle('shortcut-create', (_e, kinds) => {
     const dirs = shortcutDirs();
     return sysconf.createShortcuts(Object.assign({
-      name: 'Pebble Lunchar',
+      name: 'Pebble Launcher',
       target: app.getPath('exe'),
       cwd: path.dirname(app.getPath('exe')),
-      description: 'Pebble Lunchar - Minecraft 离线启动器',
+      description: 'Pebble Launcher - Minecraft 离线启动器',
       icon: path.join(ctx.APP_DIR, 'assets', 'logo.png')
     }, dirs, { kinds: (kinds && kinds.length ? kinds : ['desktop', 'startMenu']) }));
   });
@@ -70,7 +70,7 @@ module.exports = function register(ctx) {
   ipcMain.handle('shortcut-remove', (_e, kinds) => {
     const dirs = shortcutDirs();
     return sysconf.removeShortcuts(Object.assign({
-      name: 'Pebble Lunchar', target: app.getPath('exe')
+      name: 'Pebble Launcher', target: app.getPath('exe')
     }, dirs, { kinds: (kinds && kinds.length ? kinds : ['desktop', 'startMenu']) }));
   });
 

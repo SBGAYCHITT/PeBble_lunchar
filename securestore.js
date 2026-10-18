@@ -1,4 +1,4 @@
-// Pebble Lunchar - 凭据加密存储
+// Pebble Launcher - 凭据加密存储
 // 用 Electron safeStorage（Windows = DPAPI，密钥绑定当前系统用户）加密后落盘，
 // 避免 refresh token / accessToken / 密码以明文形式留在 localStorage 里。
 //

@@ -1,4 +1,4 @@
-// Pebble Lunchar - 在线仓库（Modrinth + CurseForge）
+// Pebble Launcher - 在线仓库（Modrinth + CurseForge）
 //
 // 设计前提：
 // 1. **Modrinth 免密钥**，直接可用；**CurseForge 必须 API Key**（无 key 会 403）。
@@ -11,7 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const UA = 'PebbleLunchar/1.0.0 (Minecraft launcher; +local)';
+const UA = 'PebbleLauncher/1.0.0 (Minecraft launcher; +local)';
 const TIMEOUT = 20000;
 
 /* ---------- 类型映射 ---------- */

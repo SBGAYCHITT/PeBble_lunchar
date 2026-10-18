@@ -361,7 +361,7 @@ function report(analysis) {
   const a = analysis || {};
   const sum = a.summary || {};
   const lines = [];
-  lines.push('Pebble Lunchar · 实体清理报告');
+  lines.push('Pebble Launcher · 实体清理报告');
   lines.push('存档：' + (a.name || a.saveDir || '(未知)'));
   lines.push('时间：' + new Date().toISOString());
   lines.push('');

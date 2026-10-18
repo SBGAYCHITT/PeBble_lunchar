@@ -23,14 +23,14 @@ function findExe() {
   const cands = [];
   for (const d of fs.readdirSync(ROOT)) {
     if (!/^dist-lite\d*$/.test(d)) continue;
-    const p = path.join(ROOT, d, 'win-unpacked', 'Pebble Lunchar.exe');
+    const p = path.join(ROOT, d, 'win-unpacked', 'Pebble Launcher.exe');
     if (fs.existsSync(p)) cands.push({ p, t: fs.statSync(p).mtimeMs });
   }
   if (cands.length) {
     cands.sort((a, b) => b.t - a.t);
     return cands[0].p;
   }
-  return path.join(ROOT, 'dist-lite', 'win-unpacked', 'Pebble Lunchar.exe');
+  return path.join(ROOT, 'dist-lite', 'win-unpacked', 'Pebble Launcher.exe');
 }
 
 const EXE = findExe();
@@ -133,7 +133,7 @@ function makeClient(ws) {
     check('导航只剩 5 项', dom.navs.join(',') === want.join(','), dom.navs.join(','));
     check('页面只剩 5 个', dom.secs.join(',') === want.join(','), dom.secs.join(','));
     check('标题栏有 LITE 徽标', dom.lite);
-    check('窗口标题是 Lite', dom.title === 'Pebble Lunchar Lite', dom.title);
+    check('窗口标题是 Lite', dom.title === 'Pebble Launcher Lite', dom.title);
     check('渲染层脚本都加载了', dom.pagesApi === 'object' && dom.pl === true);
     check('启动页默认激活', dom.cur === 'launch', dom.cur);
     check('窗口已撑开', dom.winW >= 900, dom.winW + '×' + dom.winH);

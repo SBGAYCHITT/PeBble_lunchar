@@ -147,11 +147,11 @@ await ta('更新源 404 时报 HTTP 错误而不是崩', async () => {
 
 /* ---------- 下载 ---------- */
 console.log('\n--- 下载 ---');
-const PAYLOAD = Buffer.from('pebble-lunchar-payload-'.repeat(2000));
+const PAYLOAD = Buffer.from('pebble-launcher-payload-'.repeat(2000));
 
 await ta('正常下载：写盘、哈希正确、进度收在 100%、不留 .part', async () => {
   const dir = tmpDir('ok');
-  const dest = path.join(dir, 'Pebble-Lunchar-5.1.0.exe');
+  const dest = path.join(dir, 'Pebble-Launcher-5.1.0.exe');
   const ps = [];
   const r = await updater.downloadUpdate({
     url: 'https://x/a.exe', dest, sha256: sha(PAYLOAD), size: PAYLOAD.length,

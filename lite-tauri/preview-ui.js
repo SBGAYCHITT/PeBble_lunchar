@@ -57,10 +57,10 @@ const JAVAS = [
 ];
 
 const RET = {
-  app_info: { name: 'Pebble Lunchar Lite', version: '4.2.0',
+  app_info: { name: 'Pebble Launcher Lite', version: '4.2.0',
     runtime: 'Rust edition2021 · WebView2',
     defaultMcDir: 'C:\\Users\\Felix\\AppData\\Roaming\\.minecraft',
-    dataDir: 'C:\\Users\\Felix\\AppData\\Roaming\\com.sbgaychitt.pebblelunchar.lite' },
+    dataDir: 'C:\\Users\\Felix\\AppData\\Roaming\\com.sbgaychitt.pebblelauncher.lite' },
   settings_get: SETTINGS,
   settings_save: null,
   default_mcdir: 'C:\\Users\\Felix\\AppData\\Roaming\\.minecraft',
@@ -249,7 +249,7 @@ async function run() {
   const chk = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); c ? pass++ : fail++; };
 
   console.log('=== 渲染（页面：' + page + '）===');
-  chk(r.title === 'Pebble Lunchar Lite', '标题 ' + JSON.stringify(r.title));
+  chk(r.title === 'Pebble Launcher Lite', '标题 ' + JSON.stringify(r.title));
   chk(r.navItems === 5, '导航 5 项（实为 ' + r.navItems + '）');
   chk(r.navVisible === true, '导航栏有实际尺寸（不是被 CSS 藏起来）');
   chk(r.titlebarVisible === true, '标题栏有实际尺寸');

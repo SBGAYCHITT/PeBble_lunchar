@@ -1,4 +1,4 @@
-// Pebble Lunchar - 极简 ZIP 读取器
+// Pebble Launcher - 极简 ZIP 读取器
 //
 // 为什么要自己写：为了读 mod jar 里的 fabric.mod.json / mods.toml，或者资源包里的
 // pack.png，我们需要在不解压整个文件、也不引入第三方依赖的前提下随机读取 ZIP 内的

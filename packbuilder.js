@@ -1,4 +1,4 @@
-// Pebble Lunchar - 整合包创建向导（V4 第四组 · R19）
+// Pebble Launcher - 整合包创建向导（V4 第四组 · R19）
 //
 // 要解决的事：玩家装了几百个 mod，想分享给朋友 —— 但直接 zip 整个 mods 目录
 // 有几个问题：① 体积巨大（大家都有的 API 也塞进去了）；② 版权不干净（作者不允许二次分发）；
@@ -264,7 +264,7 @@ function buildManifest(o) {
 
   const manifest = {
     formatVersion: 1,
-    generator: 'Pebble Lunchar',
+    generator: 'Pebble Launcher',
     name: opt.name || '未命名整合包',
     author: opt.author || '',
     note: opt.note || '',
@@ -412,7 +412,7 @@ function buildReadme(manifest) {
     '   （本整合包可能未附带 jar，请到各 mod 的发布页下载对应版本）',
     '3. 启动游戏',
     '',
-    '本清单由 Pebble Lunchar 生成。'
+    '本清单由 Pebble Launcher 生成。'
   ];
   return lines.filter((l) => l !== '').join('\r\n') + '\r\n';
 }

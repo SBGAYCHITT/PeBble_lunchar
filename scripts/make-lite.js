@@ -99,7 +99,7 @@ html = html.replace('<p class="sub">Minecraft 离线启动器</p>',
 /* ---------- 6. 标题栏加 LITE 徽标 + 窗口标题 ---------- */
 html = html.replace('<span class="logo-badge" id="nav-title">启动</span>',
   '<span class="logo-badge" id="nav-title">启动</span>\n        <span class="logo-badge lite">LITE</span>');
-html = html.replace('<title>Pebble Lunchar</title>', '<title>Pebble Lunchar Lite</title>');
+html = html.replace('<title>Pebble Launcher</title>', '<title>Pebble Launcher Lite</title>');
 
 /* ---------- 校验：剩下的页面必须正好是白名单 ---------- */
 const leftNav = [...html.matchAll(/data-page="([a-z0-9-]+)"/g)].map((m) => m[1]);

@@ -1,4 +1,4 @@
-// Pebble Lunchar - 文件系统层：资源目录管理、存档 NBT 解析、版本文件操作
+// Pebble Launcher - 文件系统层：资源目录管理、存档 NBT 解析、版本文件操作
 const fs = require('fs');
 const path = require('path');
 const fsutil = require('./fsutil');

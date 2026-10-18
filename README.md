@@ -1,4 +1,4 @@
-# Pebble Lunchar
+# Pebble Launcher
 
 Minecraft 启动器（离线模式为主），纯白 + 蓝绿像素渐变界面，打包为免安装单文件 .exe。
 功能对标 PCL2，**不含联机相关功能**（局域网联机 / P2P 联机）。
@@ -7,7 +7,7 @@ Minecraft 启动器（离线模式为主），纯白 + 蓝绿像素渐变界面�
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 > **下载**：前往 [Releases 页面](https://github.com/SBGAYCHITT/PeBble_lunchar/releases) 下载最新的
-> `Pebble-Lunchar.exe`（免安装单文件，双击即用，支持 Windows 10/11 x64）。
+> `Pebble-Launcher.exe`（免安装单文件，双击即用，支持 Windows 10/11 x64）。
 
 ## Code signing policy
 
@@ -513,7 +513,7 @@ CurseForge 返回的 HTML 描述一律剥成纯文本。
 
 ## 使用
 
-1. 双击 `Pebble-Lunchar.exe`
+1. 双击 `Pebble-Launcher.exe`
 2. **首次使用**：到「版本」页 → 选择版本 →「下载」；或填写 MC 版本后安装 Forge / Fabric 等加载器
 3. 回到「启动」页 → 选版本 →「启动游戏」
 
@@ -541,7 +541,7 @@ CurseForge 返回的 HTML 描述一律剥成纯文本。
 ## 目录结构
 
 ```
-pebble-lunchar/
+pebble-launcher/
 ├── main.js         Electron 主进程：无边框亚克力窗口 + 托盘 + 装配（988 行 → 164 行）
 ├── ipc/            IPC 按域拆分：base/window/content/store/account/versions/instance/
 │                   migrate/backup/lab/multilaunch/system/world。每个导出 register(ctx)，
@@ -652,7 +652,7 @@ npm start          # 本地运行
 npm test           # 单元测试：40 个套件（含 NBT、Anvil、世界版本控制、世界合并、世界地图、跨存档数据库、性能诊断、性能 IPC 接线、自动调参、Mod 更新评估、汉化补全、整合包向导、ZIP 写入、实体清理、合成规划、运行时指标、多账户簿、启动参数、自动更新、打包白名单、IPC 契约、IPC 运行时、无头装配、i18n）
 npm run typecheck  # JSDoc 类型检查（tsc --checkJs，不产出文件）
 npm run test:e2e   # 端到端冒烟：真实 Electron 里跑一遍新增 IPC
-npm run dist       # 打包 portable exe → dist/Pebble-Lunchar.exe（内含代码签名步骤）
+npm run dist       # 打包 portable exe → dist/Pebble-Launcher.exe（内含代码签名步骤）
 npm run devcert    # 生成开发用自签名证书（免管理员；详见 SIGNING.md）
 npm run sign       # 单独给 dist 产物签名（换正式证书时用）
 npm run sac        # 检测产物会不会被「智能应用控制」拦截
@@ -683,12 +683,12 @@ npm install --registry=https://registry.npmmirror.com
 
 ## 打包说明（本机实测）
 
-产物：`dist/Pebble-Lunchar.exe`（75 MB 单文件，双击即用，**已带代码签名**）。
+产物：`dist/Pebble-Launcher.exe`（75 MB 单文件，双击即用，**已带代码签名**）。
 
 > ⚠️ Windows 11 的**智能应用控制（Smart App Control）**会拦截未签名的程序，且没有任何绕过入口。
 > 签名流程已接进打包链，证书怎么来、怎么签、怎么验证看 **[SIGNING.md](SIGNING.md)**。
 
-运行机制：首次双击自解压到 `%LOCALAPPDATA%\PebbleLunchar`（约 14 秒）并启动；之后双击直接秒开。
+运行机制：首次双击自解压到 `%LOCALAPPDATA%\PebbleLauncher`（约 14 秒）并启动；之后双击直接秒开。
 支持在「添加或删除程序」中卸载。
 
 构建链为两步：
@@ -697,7 +697,7 @@ npm install --registry=https://registry.npmmirror.com
 # 0) 清理旧产物（node 的 rm 会被沙箱删除守卫拦截，用 PowerShell）
 #    Remove-Item -Recurse -Force dist\win-unpacked
 
-# 1) electron-builder 产出 dist/win-unpacked（含 Pebble Lunchar.exe + resources/app.asar + 图标）
+# 1) electron-builder 产出 dist/win-unpacked（含 Pebble Launcher.exe + resources/app.asar + 图标）
 unset ELECTRON_RUN_AS_NODE
 USE_HARD_LINKS=false node node_modules/electron-builder/cli.js --win --x64 --dir
 
@@ -779,7 +779,7 @@ Tauri 版换掉运行时归属，体积直接掉到 1/20 —— 见下面的体�
 ### 构建（Tauri 路线）
 
 ```bash
-npm run lite:tauri           # 编译 Rust + 覆盖 dist-lite7/Pebble-Lunchar-Lite.exe
+npm run lite:tauri           # 编译 Rust + 覆盖 dist-lite7/Pebble-Launcher-Lite.exe
 npm run lite:tauri:verify    # 上面 + 契约对账 + 启动参数核验 + 界面逐页核验
 npm run lite:tauri:ui        # 单独打开前端预览台（调界面用）
 npm run lite:tauri:contract  # 只跑前后端命令 / 字段静态对账
@@ -825,9 +825,9 @@ npm run lite:verify    # 校验白名单覆盖依赖闭包 + preload 与 IPC 通
 npm run lite:runtime   # 生成精简版 Electron 运行时 build/electron-lite
 PL_OUT_DIR=dist-lite npm run lite:pack          # 产出 win-unpacked
 
-PL_SRC=dist-lite/win-unpacked PL_OUT=dist-lite/Pebble-Lunchar-Lite.exe \
-  PL_APPNAME="Pebble Lunchar Lite" PL_EXENAME="Pebble Lunchar.exe" \
-  PL_INSTDIR=PebbleLuncharLite node make-exe.js  # 编译单文件 exe 并签名
+PL_SRC=dist-lite/win-unpacked PL_OUT=dist-lite/Pebble-Launcher-Lite.exe \
+  PL_APPNAME="Pebble Launcher Lite" PL_EXENAME="Pebble Launcher.exe" \
+  PL_INSTDIR=PebbleLauncherLite node make-exe.js  # 编译单文件 exe 并签名
 ```
 
 （`npm run lite` 把前三步串起来跑。）
@@ -1136,7 +1136,7 @@ PL_SRC=dist-lite/win-unpacked PL_OUT=dist-lite/Pebble-Lunchar-Lite.exe \
 
 - **双击无反应 / 闪退**：多为显卡加速问题。可用命令行加参数启动验证：
   ```bat
-  "%LOCALAPPDATA%\PebbleLunchar\Pebble Lunchar.exe" --disable-gpu
+  "%LOCALAPPDATA%\PebbleLauncher\Pebble Launcher.exe" --disable-gpu
   ```
 - **找不到 Java**：在「设置 → Java 路径」手动指定 `javaw.exe`；MC 1.20.5+ 需要 Java 21。
 - **版本列表为空**：到「版本」页下载，或在设置里确认 `.minecraft` 目录是否正确。
@@ -1170,7 +1170,7 @@ PL_SRC=dist-lite/win-unpacked PL_OUT=dist-lite/Pebble-Lunchar-Lite.exe \
   - **本机 + 内测机器**：`npm run devcert` 生成自签名证书并信任，再用 `npm run sign` 签名。
     实测可放行安装包（详细验证过程见 SIGNING.md）。
   - **正式发行**：只能买受信任 CA 的代码签名证书（OV 约 ¥500–1200/年）。
-- **重复运行 exe 没生效**：NSIS 安装器按 `version.txt` 构建号判断，构建号一致时直接启动已安装副本（秒开），不一致时自动覆盖重装。手动强制重装可删除 `%LOCALAPPDATA%\PebbleLunchar` 后重新运行 exe。
+- **重复运行 exe 没生效**：NSIS 安装器按 `version.txt` 构建号判断，构建号一致时直接启动已安装副本（秒开），不一致时自动覆盖重装。手动强制重装可删除 `%LOCALAPPDATA%\PebbleLauncher` 后重新运行 exe。
 
 ## 技术要点
 

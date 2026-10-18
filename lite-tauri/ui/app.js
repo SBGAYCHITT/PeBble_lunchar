@@ -1,4 +1,4 @@
-/* Pebble Lunchar Lite —— 前端（Rust + WebView2 版）
+/* Pebble Launcher Lite —— 前端（Rust + WebView2 版）
  *
  * 与 Electron 版的分工一致：界面只管展示与交互，所有文件系统 / 进程操作走 Rust。
  * 通信方式从 ipcRenderer.invoke 换成 Tauri 的 invoke，其余逻辑照旧。
@@ -452,10 +452,10 @@
    * 调试通道，也不受沙箱限制。启动卡在哪一步，看一眼标题就知道。
    * 正常跑完会还原成正式标题。 */
   function mark(stage) {
-    try { document.title = 'Pebble Lunchar Lite · ' + stage; } catch { /* 标题只用于诊断 */ }
+    try { document.title = 'Pebble Launcher Lite · ' + stage; } catch { /* 标题只用于诊断 */ }
   }
   function markDone() {
-    try { document.title = 'Pebble Lunchar Lite'; } catch { /* 同上 */ }
+    try { document.title = 'Pebble Launcher Lite'; } catch { /* 同上 */ }
   }
 
   async function init() {
@@ -480,7 +480,7 @@
 
     await refreshAll();
     mark('数据已加载');
-    log('[启动器] Pebble Lunchar Lite ' + info.version + ' 就绪');
+    log('[启动器] Pebble Launcher Lite ' + info.version + ' 就绪');
     setStatus('就绪', '');
     markDone();
     invoke('ui_ready', { diag: selfCheck({ ok: true, runtime: info.runtime }) }).catch(() => {});

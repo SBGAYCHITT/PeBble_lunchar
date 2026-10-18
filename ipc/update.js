@@ -53,7 +53,7 @@ function scanStaged(dir) {
   try { names = fs.readdirSync(dir); } catch { return null; }
   let best = null;
   for (const n of names) {
-    const m = /^Pebble-Lunchar-(.+)\.exe$/i.exec(n);
+    const m = /^Pebble-Launcher-(.+)\.exe$/i.exec(n);
     if (!m) continue;
     const full = path.join(dir, n);
     let st;
@@ -91,7 +91,7 @@ function runDownload(o, ctx) {
       if (Notification.isSupported()) {
         new Notification({
           title: '更新已下载完成',
-          body: `Pebble Lunchar ${o.version} 已就绪，重启启动器即可生效`
+          body: `Pebble Launcher ${o.version} 已就绪，重启启动器即可生效`
         }).show();
       }
       return;
@@ -120,7 +120,7 @@ module.exports = function register(ctx) {
     const r = await updater.checkUpdate({ feedUrl: url, currentVersion: app.getVersion() });
     if (r.ok && r.hasUpdate && Notification.isSupported()) {
       new Notification({
-        title: 'Pebble Lunchar 有新版本 ' + r.latestVersion,
+        title: 'Pebble Launcher 有新版本 ' + r.latestVersion,
         body: r.canAutoInstall ? '可在「设置 → 系统与更新」里直接下载安装' : '可在「设置 → 系统与更新」查看并下载'
       }).show();
     }
@@ -162,7 +162,7 @@ module.exports = function register(ctx) {
     if (!updater.canAutoInstall({ url, sha256: sha })) {
       return { ok: false, error: '这份更新清单没提供校验值（sha256），无法自动安装。请用「打开下载页」手动下载。' };
     }
-    const dest = path.join(updatesDir(), 'Pebble-Lunchar-' + (version || 'update') + '.exe');
+    const dest = path.join(updatesDir(), 'Pebble-Launcher-' + (version || 'update') + '.exe');
     job = { cancelled: false, version, dest, percent: 0, received: 0, total: Number(opt.size) || 0, speed: 0 };
     runDownload({ url, dest, sha256: sha, size: Number(opt.size) || 0, version }, ctx);
     return { ok: true, started: true, dest };

@@ -1,4 +1,4 @@
-// Pebble Lunchar - 渲染层核心：状态、导航、启动、账户、设置
+// Pebble Launcher - 渲染层核心：状态、导航、启动、账户、设置
 (function () {
   /* Lite 版会裁掉若干页面，`$('某按钮').onclick = ...` 这种写法一旦取到 null 就会抛
      TypeError，把整个 init() 断掉（后面版本刷新、Java 检测都跑不到）。

@@ -1,4 +1,4 @@
-// Pebble Lunchar - 加载器自动安装（Forge / NeoForge / Fabric / Quilt / OptiFine）
+// Pebble Launcher - 加载器自动安装（Forge / NeoForge / Fabric / Quilt / OptiFine）
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');

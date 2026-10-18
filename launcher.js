@@ -1,11 +1,11 @@
-// Pebble Lunchar - 核心启动逻辑（主进程侧）
+// Pebble Launcher - 核心启动逻辑（主进程侧）
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 
-const LAUNCHER_NAME = 'PebbleLunchar';
+const LAUNCHER_NAME = 'PebbleLauncher';
 /** 启动器自身版本，写进 -Dminecraft.launcher.version / ${launcher_version} */
 const APP_VERSION = (function () {
   try { return require('./package.json').version || '0.0.0'; } catch { return '0.0.0'; }

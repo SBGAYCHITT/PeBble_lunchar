@@ -1,4 +1,4 @@
-// Pebble Lunchar - 版本下载安装（官方源优先，失败自动切国内镜像 BMCLAPI）
+// Pebble Launcher - 版本下载安装（官方源优先，失败自动切国内镜像 BMCLAPI）
 // 安全基线：所有文件下载后都比对官方版本 JSON 里的 sha1，不匹配即删除换源重试，
 // 防止镜像投毒 / CDN 缓存污染 / 断点续传损坏。
 const fs = require('fs');

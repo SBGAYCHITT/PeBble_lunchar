@@ -10,7 +10,7 @@
 interface Window {
   /** preload.js 通过 contextBridge 暴露的主进程 API */
   api: any;
-  /** renderer.js 挂上的全局状态（PL = Pebble Lunchar） */
+  /** renderer.js 挂上的全局状态（PL = Pebble Launcher） */
   PL: any;
   /** pages.js 挂上的页面函数集合 */
   Pages: any;

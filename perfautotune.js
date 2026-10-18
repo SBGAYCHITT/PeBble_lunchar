@@ -1,4 +1,4 @@
-// Pebble Lunchar - JVM 参数自动调优
+// Pebble Launcher - JVM 参数自动调优
 //
 // 和 jvmlab.js 的分工（别搞混）：
 //   jvmlab.js        = 「我给了 A、B 两组参数，帮我实测哪个更好」——事后验证
