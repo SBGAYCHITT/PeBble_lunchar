@@ -496,6 +496,8 @@
     /* ---------- 自动更新：检查 → 下载 → 重启安装 ---------- */
     // 上一次检查到的清单。下载/安装要用它，所以留在闭包里，不往 DOM 上挂。
     let lastFeed = null;
+    // 已经下好、等重启安装的包（自动检查到新版时不能把这个状态冲掉）
+    let stagedInfo = null;
     const updShow = (id, on) => { const el = $(id); if (el) el.hidden = !on; };
     const updSay = (txt) => { const el = $('update-result'); if (el) el.textContent = txt; };
     const updMb = (n) => (Number(n) / 1048576).toFixed(1) + ' MB';
@@ -530,6 +532,23 @@
       }
     };
     if (window.api.onUpdateProgress) window.api.onUpdateProgress(onUpdProgress);
+
+    // 主进程启动 8 秒后会自己查一次；查到新版就推到这里，把设置页的状态摆好。
+    // 同时主进程还弹了系统通知 —— 玩家不看设置页也知道有新版本。
+    const onUpdAvailable = (r) => {
+      if (!r || !r.ok || !r.hasUpdate) return;
+      lastFeed = r;
+      updShow('update-actions', true);
+      updShow('update-progress-row', false);
+      updShow('btn-update-cancel', false);
+      updShow('btn-update-download', !!r.canAutoInstall);
+      updShow('btn-update-open', !r.canAutoInstall && !!r.url);
+      // 已经下好一个包时，"立即重启安装"优先，别被新一轮检查藏起来
+      updShow('btn-update-apply', !!stagedInfo);
+      updSay(T('upd.found', { latest: r.latestVersion, current: r.currentVersion }));
+      if (r.notes) PL.appendLog(T('upd.logPrefix') + r.notes);
+    };
+    if (window.api.onUpdateAvailable) window.api.onUpdateAvailable(onUpdAvailable);
 
     if ($('btn-update-check')) $('btn-update-check').onclick = async () => {
       updSay(T('upd.checking'));
@@ -586,8 +605,15 @@
       try {
         const st = await window.api.updateStatus();
         if (!st || !st.ok) return;
+        // 更新源显示"实际生效的地址"：玩家没填过就会看到官方源，而不是一个空框
         if (st.feed && $('sys-feed') && !$('sys-feed').value) $('sys-feed').value = st.feed;
+        const au = $('sys-auto-update');
+        if (au) {
+          au.checked = st.autoUpdateCheck !== false;
+          au.addEventListener('change', () => window.api.updateAutoSet(au.checked));
+        }
         if (st.staged) {
+          stagedInfo = st.staged;
           updShow('update-actions', true);
           updShow('btn-update-download', false);
           updShow('btn-update-open', false);

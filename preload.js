@@ -146,12 +146,15 @@ contextBridge.exposeInMainWorld('api', {
    * 下载要几分钟，进度与结果都从 onUpdateProgress 推过来，invoke 立刻返回 {started:true}。 */
   updateCheck: (feedUrl) => ipcRenderer.invoke('update-check', feedUrl),
   updateFeedSet: (url) => ipcRenderer.invoke('update-feed-set', url),
+  updateAutoSet: (on) => ipcRenderer.invoke('update-auto-set', on),
   updateStatus: () => ipcRenderer.invoke('update-status'),
   updateDownload: (o) => ipcRenderer.invoke('update-download', o),
   updateCancel: () => ipcRenderer.invoke('update-cancel'),
   updateApply: () => ipcRenderer.invoke('update-apply'),
   updateOpenFolder: () => ipcRenderer.invoke('update-open-folder'),
   onUpdateProgress: (cb) => { ipcRenderer.on('update-progress', (_e, p) => cb(p)); },
+  // 启动后自动检查到新版时推过来（主进程同时会弹系统通知）
+  onUpdateAvailable: (cb) => { ipcRenderer.on('update-available', (_e, r) => cb(r)); },
 
   /* 组7：截图增强 */
   shotsMeta: (gd) => ipcRenderer.invoke('shots-meta', gd),

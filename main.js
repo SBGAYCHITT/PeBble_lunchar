@@ -54,8 +54,8 @@ let launching = false;   // 供托盘菜单判断"启动游戏"能否点击
 /* 系统级配置持久化：开机自启 / 最小化到托盘 / 语言 / 更新源 / 上次的窗口大小。
    单独存一份 JSON，不塞渲染层的 localStorage —— 托盘在窗口创建之前就要读它。 */
 const SYS_CONF_PATH = path.join(app.getPath('userData'), 'sysconf.json');
-/** @type {{ autostart:boolean, minimizeToTray:boolean, lang:string, updateFeed:string, winSize:{w:number,h:number}|null }} */
-const SYS_CONF_DEFAULT = { autostart: false, minimizeToTray: false, lang: 'zh-CN', updateFeed: '', winSize: null };
+/** @type {{ autostart:boolean, minimizeToTray:boolean, lang:string, updateFeed:string, autoUpdateCheck:boolean, winSize:{w:number,h:number}|null }} */
+const SYS_CONF_DEFAULT = { autostart: false, minimizeToTray: false, lang: 'zh-CN', updateFeed: '', autoUpdateCheck: true, winSize: null };
 /** @type {typeof SYS_CONF_DEFAULT} */
 let sysConf = Object.assign({}, SYS_CONF_DEFAULT);
 

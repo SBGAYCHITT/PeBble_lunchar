@@ -442,6 +442,9 @@
               <div class="path-row"><input id="sys-feed" class="inp" placeholder="https://…/update.json" spellcheck="false" />
               <button id="btn-update-check" class="ghost-btn" data-i18n="sys.checkUpdate">检查更新</button></div>
             </div>
+            <div class="set-row"><label data-i18n="sys.autoUpdate">自动检查更新</label>
+              <label class="chk"><input id="sys-auto-update" type="checkbox" checked /><span data-i18n="sys.autoUpdateHint">启动时查一次，有新版本会提醒我</span></label>
+            </div>
             <div class="set-row"><label></label><span id="update-result" class="tip"></span></div>
             <div class="set-row" id="update-actions" hidden><label></label>
               <div class="row">

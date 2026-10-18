@@ -21,12 +21,29 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+/**
+ * 官方更新源。客户端**开箱即用**的关键：不填也能查，不用玩家自己找 JSON 地址。
+ * 官网与更新源是同一个 Deno Deploy 应用，读的是同一份 data/latest.json。
+ */
+const DEFAULT_FEED_URL = 'https://pebble-site.shitsmart.deno.net/api/update/latest';
+
 /** 检查更新时的总超时（这只是拿一个小 JSON，够用） */
 const CHECK_TIMEOUT_MS = 15000;
 /** 下载时用的是「无数据超时」而不是总超时 —— 79MB 在慢网络下总超时必然误杀 */
 const STALL_TIMEOUT_MS = 30000;
 /** 进度回调的最小间隔，避免每 64KB 就跨进程喊一次 */
 const PROGRESS_STEP_MS = 200;
+
+/**
+ * 实际要用哪个更新源：玩家填了就用玩家的，没填（或只填了空格）就走官方源。
+ * 纯函数，便于测试「设置页清空之后仍然能检查更新」这条行为。
+ * @param {unknown} configured
+ * @returns {string}
+ */
+function effectiveFeedUrl(configured) {
+  const s = String(configured == null ? '' : configured).trim();
+  return s || DEFAULT_FEED_URL;
+}
 
 /**
  * 比较两段版本号（纯函数）。非数字段按字符串比，长度不等按 0 补齐。
@@ -385,7 +402,7 @@ function applyUpdate(o) {
 }
 
 module.exports = {
-  CHECK_TIMEOUT_MS, STALL_TIMEOUT_MS,
-  compareVersion, parseFeed, canAutoInstall, checkUpdate,
+  DEFAULT_FEED_URL, CHECK_TIMEOUT_MS, STALL_TIMEOUT_MS,
+  effectiveFeedUrl, compareVersion, parseFeed, canAutoInstall, checkUpdate,
   downloadUpdate, buildApplyScript, applyUpdate
 };

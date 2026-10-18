@@ -1,6 +1,6 @@
 {
   "name": "pebble-launcher",
-  "version": "5.0.0",
+  "version": "5.1.0",
   "description": "Pebble Launcher - Minecraft offline launcher",
   "main": "main.js",
   "author": "Felix",

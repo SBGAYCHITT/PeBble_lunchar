@@ -23,6 +23,17 @@ let job = null;
 /** @type {{version:string, path:string, bytes:number, sha256:string}|null} */
 let staged = null;
 
+/* ---------- 自动检查 ----------
+ * 启动后先让界面跑起来再查（8 秒），之后每 6 小时一次。
+ * 目的很明确：玩家不该为了知道「有没有新版」专门去设置页点一下。
+ * 只提醒、不擅自下载 —— 79MB 的包在流量网络上自己动起来是很讨厌的行为。
+ */
+const AUTO_CHECK_DELAY_MS = 8000;
+const AUTO_CHECK_EVERY_MS = 6 * 60 * 60 * 1000;
+/** 同一个版本只提醒一次，避免 6 小时一次的通知轰炸 */
+let notifiedVersion = '';
+let autoChecking = false;
+
 /**
  * 要替换的到底是哪个 exe。
  *
@@ -111,12 +122,58 @@ module.exports = function register(ctx) {
   /** 下载目录：放在 userData 下，和游戏目录分开；换游戏目录不会把下好的包丢了 */
   const updatesDir = () => path.join(ctx.userData, 'updates');
 
+  /** 当前生效的更新源：玩家没填就回落到官方源（见 updater.effectiveFeedUrl） */
+  const feedOf = () => updater.effectiveFeedUrl(ctx.getSysConf().updateFeed);
+
   staged = scanStaged(updatesDir());   // 上次下载没来得及装，这次接着用
+
+  /**
+   * 静默检查一次。**不下载**，只把「有新版本」这件事告诉界面 + 弹一条系统通知。
+   * 失败也不打扰用户（离线启动是常态，开机自启时更常见）。
+   * @param {'startup'|'timer'} reason
+   */
+  async function autoCheck(reason) {
+    if (autoChecking) return;
+    if (ctx.getSysConf().autoUpdateCheck === false) return;
+    autoChecking = true;
+    try {
+      const r = await updater.checkUpdate({ feedUrl: feedOf(), currentVersion: app.getVersion() });
+      if (!r || !r.ok || !r.hasUpdate) return;
+      if (r.latestVersion === notifiedVersion) return;
+      notifiedVersion = r.latestVersion;
+      // 渲染层可能还没加载完（启动检查时），所以两件事都做：事件 + 主进程通知。
+      ctx.emit('update-available', r);
+      if (Notification.isSupported()) {
+        new Notification({
+          title: 'Pebble Launcher 有新版本 ' + r.latestVersion,
+          body: r.canAutoInstall
+            ? '打开「设置 → 系统与更新」就能直接下载安装'
+            : '打开「设置 → 系统与更新」查看并下载'
+        }).show();
+      }
+      ctx.emit('update-auto-checked', { reason, ok: true, hasUpdate: true, result: r });
+    } catch (e) {
+      ctx.emit('update-auto-checked', {
+        reason,
+        ok: false,
+        hasUpdate: false,
+        error: (e && e.message) ? e.message : String(e)
+      });
+    } finally {
+      autoChecking = false;
+    }
+  }
+
+  // 启动检查：等窗口和网络栈都热起来再查，别和首屏抢带宽
+  const bootTimer = setTimeout(() => { autoCheck('startup'); }, AUTO_CHECK_DELAY_MS);
+  if (bootTimer && typeof bootTimer.unref === 'function') bootTimer.unref();
+  const loopTimer = setInterval(() => { autoCheck('timer'); }, AUTO_CHECK_EVERY_MS);
+  if (loopTimer && typeof loopTimer.unref === 'function') loopTimer.unref();
 
   /* ---------- 检查 ---------- */
 
   ipcMain.handle('update-check', async (_e, feedUrl) => {
-    const url = String(feedUrl || ctx.getSysConf().updateFeed || '').trim();
+    const url = String(feedUrl || '').trim() || feedOf();
     const r = await updater.checkUpdate({ feedUrl: url, currentVersion: app.getVersion() });
     if (r.ok && r.hasUpdate && Notification.isSupported()) {
       new Notification({
@@ -128,8 +185,15 @@ module.exports = function register(ctx) {
   });
 
   ipcMain.handle('update-feed-set', (_e, url) => {
+    // 存原样（空字符串表示"用官方源"）；不要把它写成官方地址，
+    // 否则以后官方源换域名，老用户就被钉在旧地址上再也收不到更新。
     ctx.patchSysConf({ updateFeed: String(url || '').trim() });
-    return { ok: true, updateFeed: ctx.getSysConf().updateFeed };
+    return { ok: true, updateFeed: ctx.getSysConf().updateFeed, effective: feedOf() };
+  });
+
+  ipcMain.handle('update-auto-set', (_e, on) => {
+    ctx.patchSysConf({ autoUpdateCheck: !!on });
+    return { ok: true, autoUpdateCheck: !!on };
   });
 
   /* ---------- 状态 ---------- */
@@ -139,7 +203,9 @@ module.exports = function register(ctx) {
     return {
       ok: true,
       currentVersion: app.getVersion(),
-      feed: ctx.getSysConf().updateFeed || '',
+      feed: feedOf(),
+      feedConfigured: ctx.getSysConf().updateFeed || '',
+      autoUpdateCheck: ctx.getSysConf().autoUpdateCheck !== false,
       target: t.path,
       portable: t.portable,
       job: job ? {

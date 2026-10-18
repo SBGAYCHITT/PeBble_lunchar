@@ -76,6 +76,21 @@ t('5.0.0 比 4.4.0 新', () => {
   assert.strictEqual(updater.compareVersion('5.0.0', '4.4.0'), 1);
 });
 
+/* ---------- 更新源回落 ---------- */
+console.log('\n--- 更新源回落 ---');
+t('没填更新源时用官方源（开箱即用，不需要玩家配置）', () => {
+  assert.strictEqual(updater.effectiveFeedUrl(''), updater.DEFAULT_FEED_URL);
+  assert.strictEqual(updater.effectiveFeedUrl('   '), updater.DEFAULT_FEED_URL);
+  assert.strictEqual(updater.effectiveFeedUrl(null), updater.DEFAULT_FEED_URL);
+});
+t('玩家填了就用玩家的（去掉首尾空格）', () => {
+  assert.strictEqual(updater.effectiveFeedUrl('  https://x.test/u.json '), 'https://x.test/u.json');
+});
+t('官方源必须是 https 且指向更新清单接口', () => {
+  assert.ok(/^https:\/\//.test(updater.DEFAULT_FEED_URL));
+  assert.ok(/\/api\/update\/latest$/.test(updater.DEFAULT_FEED_URL));
+});
+
 /* ---------- feed 校验 ---------- */
 console.log('\n--- feed 校验 ---');
 t('合法 sha256 归一化成小写', () => {
