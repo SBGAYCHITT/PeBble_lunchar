@@ -30,15 +30,18 @@ const DEFAULT_FEED_URL = 'https://pebble-site.shitsmart.deno.net/api/update/late
 /**
  * 备用更新源，按顺序尝试。
  *
- * 教训：2026-10-18 Deno Deploy 免费额度用超，整个官网 503（USAGE_EXCEEDED），
+ * 教训（2026-10-18）：Deno Deploy 免费额度用超，整个官网 503（USAGE_EXCEEDED），
  * 更新检查跟着一起哑了 —— 单一更新源 = 单一故障点。
  * 现在把清单同时作为 Release 资产传一份（`releases/latest/download/latest.json`，
- * 永远指向最新一次发布），再加一个 jsDelivr 镜像（大陆通常可达）。
- * 三个地址互相独立，任何一个活着，更新就能查。
+ * 永远指向最新一次发布），再加一份 raw.githubusercontent 的原文。
+ *
+ * ⚠️ 不要用 jsDelivr 镜像 `@main`：它的边缘缓存最长 12 小时不刷新，
+ * 刚发版时会拿着**旧指纹**说"有新版本"，下载完必然校验失败（实测踩到）。
+ * 宁可少一个源，也不要给玩家一个注定装不上的更新。
  */
 const FALLBACK_FEED_URLS = [
   'https://github.com/SBGAYCHITT/PeBble_lunchar/releases/latest/download/latest.json',
-  'https://cdn.jsdelivr.net/gh/SBGAYCHITT/pebble-site@main/data/latest.json',
+  'https://raw.githubusercontent.com/SBGAYCHITT/pebble-site/main/data/latest.json',
 ];
 
 /** 官方源集合（第一个是主源） */
