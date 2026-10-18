@@ -48,19 +48,35 @@
  *   "entities": 1234,     // 已加载实体数
  *   "chunks": 441,        // 已加载区块数
  *   "players": 1,         // 在线玩家数
- *   "dim": "overworld"    // 当前维度
+ *   "dim": "overworld",   // 当前维度
+ *   "frames": 138,        // 【可选】这一秒渲染的帧数
+ *   "longFrames": 3,      // 【可选】这一秒里帧时间超过 50ms 的帧数
+ *   "ftP99": 41.2,        // 【可选】这一秒内帧时间的 P99（ms）
+ *   "frameTimes": [...]   // 【可选】逐帧毫秒数组（调试用，正常别开，很占空间）
  * }
  * ```
+ *
+ * `frames` / `longFrames` 是「性能诊断 → 帧时间分布」能不能给出**精确长帧占比**的关键：
+ * 只有 fps 的话，一秒内的毛刺会被平均掉，算出来的 P99 一定比真实值好看。
+ * 三个字段都可选，缺了就自动降级（见 perfdoctor.frameStats 的 resolution）。
  */
 const SPEC = {
   fileName: 'pebble-metrics.jsonl',
   metaKey: 'pebble.metrics.path',
   intervalMs: 1000,
-  fields: ['t', 'fps', 'tps', 'mspt', 'mem', 'memMax', 'entities', 'chunks', 'players', 'dim']
+  fields: ['t', 'fps', 'tps', 'mspt', 'mem', 'memMax', 'entities', 'chunks', 'players', 'dim'],
+  /** 可选扩展字段：不影响旧 Mod，给了就能算出更准的帧时间分布 */
+  optionalFields: ['frames', 'longFrames', 'ftP99', 'frameTimes']
 };
 
 /** 可能出现在样本里的数值指标 */
 const METRICS = ['fps', 'tps', 'mspt', 'mem', 'memMax', 'entities', 'chunks', 'players'];
+
+/**
+ * 帧时间扩展字段。**不进 METRICS** —— 它们不是"曲线指标"，
+ * 混进去会凭空多出几张小卡片，只有 perfdoctor.frameStats 需要。
+ */
+const FRAME_FIELDS = ['frames', 'longFrames', 'ftP99'];
 
 /* ================= 解析 ================= */
 
@@ -90,6 +106,15 @@ function parseModLine(line) {
   // 直接写对象字面量会因为"缺字段"报 TS2740
   const out = /** @type {any} */ ({ t: num(o.t), dim: typeof o.dim === 'string' ? o.dim : null });
   for (const k of METRICS) out[k] = num(o[k]);
+  // 帧时间扩展（可选，缺了是 null，不影响旧 Mod）
+  for (const k of FRAME_FIELDS) out[k] = num(o[k]);
+  if (Array.isArray(o.frameTimes)) {
+    // 逐帧数组可能很长，截前 600 个足够算分位数；全收会把内存吃掉
+    out.frameTimes = o.frameTimes.map(num).filter((v) => v !== null && v > 0).slice(0, 600);
+    if (!out.frameTimes.length) out.frameTimes = null;
+  } else {
+    out.frameTimes = null;
+  }
   if (out.t === null && out.fps === null && out.tps === null && out.mem === null) return null;
   return out;
 }
@@ -218,6 +243,9 @@ class MetricsBuffer {
     if (!sample || typeof sample !== 'object') return null;
     const s = { t: Number.isFinite(sample.t) ? sample.t : this._now() };
     for (const k of METRICS) s[k] = Number.isFinite(sample[k]) ? sample[k] : null;
+    // 帧时间扩展字段也要带过去 —— perfdoctor.frameStats 依赖它们
+    for (const k of FRAME_FIELDS) s[k] = Number.isFinite(sample[k]) ? sample[k] : null;
+    s.frameTimes = Array.isArray(sample.frameTimes) && sample.frameTimes.length ? sample.frameTimes : null;
     s.dim = typeof sample.dim === 'string' ? sample.dim : null;
     this._items.push(s);
     while (this._items.length > this.capacity) { this._items.shift(); this._dropped++; }
@@ -371,7 +399,7 @@ function verdict(o) {
 }
 
 module.exports = {
-  SPEC, METRICS,
+  SPEC, METRICS, FRAME_FIELDS,
   parseModLine, parseLogChunk, lagHealth,
   MetricsBuffer, summarize, downsample, verdict
 };

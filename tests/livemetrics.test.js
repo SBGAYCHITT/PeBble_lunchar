@@ -350,6 +350,37 @@ t('verdict：空输入不抛异常', () => {
   assert.ok(typeof lm.verdict(null).title === 'string');
 });
 
+/* -------- V5 第三组：帧时间扩展字段（可选，不影响旧 Mod） -------- */
+t('parseModLine：透传 frames / longFrames / ftP99', () => {
+  const s = lm.parseModLine('{"t":1,"fps":60,"frames":61,"longFrames":2,"ftP99":38.5}');
+  assert.strictEqual(s.frames, 61);
+  assert.strictEqual(s.longFrames, 2);
+  assert.strictEqual(s.ftP99, 38.5);
+});
+
+t('parseModLine：旧 Mod 没有帧字段时是 null，不是 0', () => {
+  const s = lm.parseModLine('{"t":1,"fps":60}');
+  assert.strictEqual(s.frames, null, '缺失必须是 null —— 0 会被当成"这一秒没渲染"');
+  assert.strictEqual(s.frameTimes, null);
+});
+
+t('parseModLine：frameTimes 过滤非法值并截断到 600', () => {
+  const arr = [16.7, -1, 'x', 0, 20];
+  for (let i = 0; i < 700; i++) arr.push(16.7);
+  const s = lm.parseModLine(JSON.stringify({ t: 1, frameTimes: arr }));
+  assert.ok(s.frameTimes.length <= 600, '实际 ' + s.frameTimes.length);
+  assert.ok(s.frameTimes.every((v) => v > 0));
+});
+
+t('MetricsBuffer：帧时间扩展字段会随样本留存', () => {
+  const b = new lm.MetricsBuffer({ capacity: 10, now: () => 1 });
+  b.push({ frames: 60, longFrames: 1, ftP99: 40, frameTimes: [16, 17] });
+  const s = b.last();
+  assert.strictEqual(s.frames, 60);
+  assert.strictEqual(s.longFrames, 1);
+  assert.deepStrictEqual(s.frameTimes, [16, 17]);
+});
+
 console.log('=================');
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

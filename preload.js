@@ -218,6 +218,11 @@ contextBridge.exposeInMainWorld('api', {
   perfAutotune: (o) => ipcRenderer.invoke('perf-autotune', o),
   perfParseArgs: (logText) => ipcRenderer.invoke('perf-parse-args', logText),
   perfRules: () => ipcRenderer.invoke('perf-rules'),
+  /* V5 第三组：性能诊断进阶 */
+  perfFrames: (o) => ipcRenderer.invoke('perf-frames', o),
+  perfAttribute: (o) => ipcRenderer.invoke('perf-attribute', o),
+  perfSessions: (gameDir) => ipcRenderer.invoke('perf-sessions', gameDir),
+  perfCompare: (o) => ipcRenderer.invoke('perf-compare', o),
 
   /* Mod 与内容管理：更新风险评估 / 汉化补全 / 资源包预览 / 整合包向导 */
   modkitFeatures: () => ipcRenderer.invoke('modkit-features'),
@@ -255,6 +260,7 @@ contextBridge.exposeInMainWorld('api', {
   craftPlan: (o) => ipcRenderer.invoke('craft-plan', o),
   craftGaps: (o) => ipcRenderer.invoke('craft-gaps', o),
   craftImport: (o) => ipcRenderer.invoke('craft-import', o),
+  craftRecipeDiff: (o) => ipcRenderer.invoke('craft-recipe-diff', o),
 
   /* 运行时指标（V4 第三组尾巴 R13） */
   liveSpec: () => ipcRenderer.invoke('live-spec'),

@@ -2688,6 +2688,9 @@
     $('cp-have-q').oninput = () => { clearTimeout(cp.hTimer); cp.hTimer = setTimeout(cpSearchHave, 250); };
     $('cp-have-q').onkeydown = (e) => { if (e.key === 'Enter') cpSearchHave(); };
     $('cp-have-add').onclick = cpSearchHave;
+    $('cp-diff-pick').onclick = cpDiffPick;
+    $('cp-diff-preview').onclick = () => cpDiffRun(false);
+    $('cp-diff-apply').onclick = () => cpDiffRun(true);
     cpRenderTargets();
     cpRenderHave();
     cpLoadMeta();
@@ -2696,7 +2699,11 @@
   }
 
   /* ============ 性能页（V4 第三组） ============ */
-  const pd = { gameDir: '', saveDir: '', lastTune: null };
+  const pd = { gameDir: '', saveDir: '', lastTune: null, lastAttr: null };
+  /** 帧时间分布（V5 第三组） */
+  const pf = { last: null };
+  /** 会话对比（V5 第三组） */
+  const pc = { list: [] };
 
   function ptabSwitch(name) {
     document.querySelectorAll('#perf-tabs .tab').forEach((t) => t.classList.toggle('active', t.dataset.ptab === name));
@@ -2824,6 +2831,19 @@
     $('pt-savedir-browse').onclick = async () => { const d = await wapi.pickDirectory(); if (d) { $('pt-savedir').value = d; } };
     $('pt-copy').onclick = ptCopy;
     $('pr-load').onclick = prLoad;
+
+    /* 帧时间分布 / 卡顿归因 / 会话对比（V5 第三组） */
+    $('pf-run').onclick = pfRun;
+    $('pf-browse').onclick = async () => { const d = await wapi.pickDirectory(); if (d) $('pf-dir').value = d; };
+    $('pf-win').onchange = () => { if (pf.last) pfRun(); };
+    $('pf-long').onchange = () => { if (pf.last) pfRun(); };
+    $('pa-run').onclick = paRun;
+    $('pa-browse').onclick = async () => { const d = await wapi.pickDirectory(); if (d) $('pa-dir').value = d; };
+    $('pa-savedir-browse').onclick = async () => { const d = await wapi.pickDirectory(); if (d) $('pa-savedir').value = d; };
+    $('pa-win').onchange = () => { if (pd.lastAttr) paRun(); };
+    $('pc-load').onclick = pcLoad;
+    $('pc-run').onclick = pcRun;
+    $('pc-browse').onclick = async () => { const d = await wapi.pickDirectory(); if (d) { $('pc-dir').value = d; pcLoad(); } };
 
     /* 运行时监控（R13） */
     $('lv-once').onclick = lvSnapshot;
@@ -3491,7 +3511,7 @@
    * 离线合成规划（V4 第二组尾巴 · R12）
    * ============================================================ */
 
-  const cp = { targets: [], have: {}, last: null, tTimer: null, hTimer: null };
+  const cp = { targets: [], have: {}, last: null, tTimer: null, hTimer: null, diffFile: '' };
 
   /** 合成方式 → 中文（via 只有 craft / smelt / smith） */
   function cpVia(v) {
@@ -3645,6 +3665,107 @@
       `内置 ${st.recipes || 0} 条配方 / ${st.outputs || 0} 种产物`);
   }
 
+  /* ---------- 配方表版本差异（V5 第三组 · 合成规划补齐） ---------- */
+
+  /** 材料数组 → "木板×2 + 木棍×1" */
+  function cpIngText(ing) {
+    return (ing || []).map((x) => (x.zh || x.key) + '×' + x.n).join(' + ') || '—';
+  }
+
+  async function cpDiffPick() {
+    const p = await wapi.pickFile([{ name: T('craft.diff.filter', null, '配方表 JSON'), extensions: ['json'] }]);
+    if (!p) return;
+    cp.diffFile = p;
+    $('cp-diff-src').textContent = T('craft.diff.picked', null, `已选：${p}`);
+  }
+
+  /**
+   * 对比 / 导入。apply=false 只预览（不碰全局配方表）。
+   * @param {boolean} apply
+   */
+  async function cpDiffRun(apply) {
+    if (!cp.diffFile) {
+      $('cp-diff-src').textContent = T('craft.diff.nofile', null, '先用「选配方文件…」挑一份 JSON。');
+      return;
+    }
+    $('cp-diff-out').innerHTML = T('craft.diff.running', null, '<div class="empty">正在对比…</div>');
+    const fn = apply ? wapi.craftImport : wapi.craftRecipeDiff;
+    const res = await fn({ file: cp.diffFile, replace: false });
+    if (!res || !res.ok) {
+      $('cp-diff-out').innerHTML = T('craft.diff.fail', null,
+        `<div class="empty">没能导入：${esc((res && res.error) || '未知错误')}</div>`);
+      return;
+    }
+    cpRenderDiff(res, apply);
+    if (apply) cpLoadMeta();
+  }
+
+  function cpRenderDiff(res, applied) {
+    const d = res.diff || res;
+    const c = d.counts || {};
+    const rows = d.rows || [];
+    const box = $('cp-diff-out');
+    box.innerHTML = '';
+
+    $('cp-diff-src').textContent = T('craft.diff.summary', null,
+      `${applied ? '已应用' : '预览'}：新增 ${c.added || 0} · 改动 ${c.changed || 0} · 移除 ${c.removed || 0} · 未变 ${c.same || 0}`);
+
+    if (!rows.length) {
+      box.innerHTML = T('craft.diff.same', null,
+        '<div class="empty">这份配方表和当前完全一致，没有需要改的地方。</div>');
+      return;
+    }
+
+    const kindText = {
+      added: T('craft.diff.added', null, '新增'),
+      removed: T('craft.diff.removed', null, '移除'),
+      changed: T('craft.diff.changed', null, '改动')
+    };
+    const cls = { added: 'sev-good', removed: 'sev-error', changed: 'sev-warn' };
+
+    for (const r of rows.slice(0, 120)) {
+      let detail = '';
+      if (r.kind === 'added') {
+        detail = T('craft.diff.row.added', null, `材料：${esc(cpIngText(r.after && r.after.ing))}`);
+      } else if (r.kind === 'removed') {
+        detail = T('craft.diff.row.removed', null, `原来：${esc(cpIngText(r.before && r.before.ing))}`);
+      } else {
+        const dl = r.delta;
+        const bits = [];
+        if (dl) {
+          if (dl.added.length) bits.push('+' + dl.added.map((x) => x.zh + '×' + x.n).join('、'));
+          if (dl.removed.length) bits.push('−' + dl.removed.map((x) => x.zh + '×' + x.n).join('、'));
+          if (dl.changed.length) bits.push('~' + dl.changed.map((x) => x.zh + ' ' + x.from + '→' + x.to).join('、'));
+        }
+        detail = T('craft.diff.row.changed', null,
+          `旧：${esc(cpIngText(r.before && r.before.ing))}<br>新：${esc(cpIngText(r.after && r.after.ing))}` +
+          (bits.length ? `<br><span class="tip inline">${esc(bits.join('　'))}</span>` : ''));
+      }
+      const d2 = document.createElement('div');
+      d2.className = 'item ' + (cls[r.kind] || '');
+      d2.innerHTML = T('craft.diff.row', null,
+        `<div><div class="t">[${esc(kindText[r.kind] || r.kind)}] ${esc(r.zh || r.out)}</div>
+          <div class="s">${detail}</div></div>`);
+      box.appendChild(d2);
+    }
+    if (rows.length > 120) {
+      const more = document.createElement('div');
+      more.className = 'item';
+      more.innerHTML = T('craft.diff.more', null,
+        `<div><div class="s">还有 ${rows.length - 120} 条没有列出（只显示前 120 条）。</div></div>`);
+      box.appendChild(more);
+    }
+  }
+
+  /** 阻塞原因 → 中文 */
+  function cpReason(r) {
+    return {
+      unknown_tag: T('craft.reason.tag', null, '标签没有候选物品'),
+      runaway: T('craft.reason.runaway', null, '配方成环，已停止展开'),
+      unknown_item: T('craft.reason.item', null, '没有配方，也不认识这个物品')
+    }[r] || r;
+  }
+
   async function cpPlan() {
     if (!cp.targets.length) { $('cp-result').textContent = T('craft.notarget', null, '还没有目标。上面搜一个物品加进来。'); return; }
     $('cp-result').textContent = T('craft.planning', null, '正在展开配方…');
@@ -3701,6 +3822,18 @@
       gBox.appendChild(d);
     }
 
+    /* 目标可行性：某个目标单独展开时卡在哪（主 plan 的合计看不出这个） */
+    for (const t of (p.targets || [])) {
+      if (t.ok !== false || !(t.blockers || []).length) continue;
+      const d = document.createElement('div');
+      d.className = 'item sev-error';
+      const bl = t.blockers.map((b) => esc(b.zh || b.key) + '（' + esc(cpReason(b.reason)) + '）').join('、');
+      d.innerHTML = T('craft.blocked', null,
+        `<div><div class="t">${esc(t.zh || t.id)} ×${t.n} 展不开</div>
+          <div class="s">卡在：${bl}</div></div>`);
+      gBox.appendChild(d);
+    }
+
     /* 基础材料 */
     const bBox = $('cp-base');
     bBox.innerHTML = '';
@@ -3718,6 +3851,33 @@
       d.innerHTML = T('craft.baserow', null,
         `<div><div class="t">${esc(b.zh || b.id)}　×${b.missing}</div><div class="s">${esc(b.sourceLabel)} · 需要 ${b.need} · 已有 ${b.have} · ${esc(b.id)}</div></div>`);
       bBox.appendChild(d);
+    }
+
+    /* 库存用量：有多少已有材料真的会被消耗掉 */
+    const kBox = $('cp-stock');
+    kBox.innerHTML = '';
+    const stock = p.stock || [];
+    if (stock.length) {
+      const head = document.createElement('div');
+      head.className = 'item sev-info';
+      head.innerHTML = T('craft.stockhead', null,
+        '<div><div class="t">库存用量</div><div class="s">这条链路会吃掉多少你已有的材料</div></div>');
+      kBox.appendChild(head);
+      for (const s of stock) {
+        const d = document.createElement('div');
+        d.className = 'item';
+        d.innerHTML = T('craft.stockrow', null,
+          `<div><div class="t">${esc(s.zh || s.id)}　用 ${s.used} / 有 ${s.have}</div>
+            <div class="s">剩余 ${s.left}${s.left > 0 ? '（没吃完）' : '（刚好用光）'}</div></div>`);
+        kBox.appendChild(d);
+      }
+      if (p.stockUnused) {
+        const d = document.createElement('div');
+        d.className = 'item';
+        d.innerHTML = T('craft.stockunused', null,
+          `<div><div class="s">另有 ${p.stockUnused} 种库存与本次目标无关，已忽略。</div></div>`);
+        kBox.appendChild(d);
+      }
     }
 
     /* 采集顺序 */
@@ -3899,6 +4059,278 @@
     if (lv.timer) { clearInterval(lv.timer); lv.timer = null; }
     if (on) lv.timer = setInterval(() => { lvSnapshot(); }, 3000);
   }
+
+  /* ============================================================
+   * 帧时间分布 / 卡顿归因 / 会话对比（V5 第三组 · 性能诊断进阶）
+   * ============================================================ */
+
+  /** 帧时间桶边界的短标签：8.33 → "8.3"，33.33 → "33.3" */
+  function fhEdge(v) {
+    if (v === Infinity) return '∞';
+    return Number.isInteger(v) ? String(v) : String(Math.round(v * 10) / 10);
+  }
+
+  /** 归因证据里的 **加粗** 是模块返回的轻量标记，转成 <b>（先转义再替换，不引入注入面） */
+  function bolden(s) {
+    return esc(String(s || '')).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+  }
+
+  async function pfRun() {
+    const dir = $('pf-dir').value.trim();
+    if (!dir) { $('pf-caveat').textContent = T('perf.frames.needdir', null, '请先指定游戏目录。'); return; }
+    $('pf-caveat').textContent = T('perf.frames.running', null, '正在读取帧样本…');
+    $('pf-badge').textContent = '';
+    const res = await wapi.perfFrames({
+      gameDir: dir,
+      winMs: Number($('pf-win').value) || 0,
+      longMs: Number($('pf-long').value) || 0
+    });
+    if (!res || res.error) {
+      $('pf-caveat').textContent = T('world.err', null, '错误: ') + ((res && res.error) || '');
+      return;
+    }
+    pf.last = res;
+    pfRender(res);
+  }
+
+  function pfRender(res) {
+    const src = res.sources || {};
+    const cards = $('pf-stats');
+    const hist = $('pf-hist');
+    cards.innerHTML = '';
+    hist.innerHTML = '';
+
+    if (!res.available) {
+      $('pf-badge').textContent = '';
+      $('pf-histsum').textContent = '';
+      $('pf-caveat').innerHTML = T('perf.frames.none', null,
+        `<b>没有帧率数据。</b>日志里不记录 FPS，所以这里不做估算。<br>
+         要看到这一页的数字，需要伴随 Mod 往 <code>pebble-metrics.jsonl</code> 写 <code>fps</code>；
+         再带上 <code>frames</code> / <code>longFrames</code> 才能算精确的长帧占比。<br>
+         参考实现见仓库 <code>companion-mod/</code>。`);
+      return;
+    }
+
+    const resLabel = {
+      frame: T('perf.frames.res.frame', null, '逐帧实测'),
+      'frame-aggregate': T('perf.frames.res.agg', null, '帧计数实测'),
+      second: T('perf.frames.res.second', null, '每秒均值推算'),
+      none: T('perf.frames.res.none', null, '无数据')
+    }[res.resolution] || res.resolution;
+    $('pf-badge').textContent = resLabel;
+
+    const items = [
+      { k: T('perf.frames.avgfps', null, '平均帧率'), v: res.avgFps, u: ' fps' },
+      { k: 'P50', v: res.p50, u: ' ms' },
+      { k: 'P95', v: res.p95, u: ' ms' },
+      { k: 'P99', v: res.p99, u: ' ms' },
+      { k: T('perf.frames.long', null, '长帧占比'), v: Math.round(res.longRatio * 1000) / 10, u: ' %' },
+      { k: T('perf.frames.worstsec', null, '最差一秒 P99'), v: res.worstSecondP99, u: ' ms' }
+    ];
+    for (const it of items) {
+      const d = document.createElement('div');
+      d.className = 'lv-card';
+      d.innerHTML = T('perf.frames.card', null,
+        `<div class="lv-card-head"><span>${esc(it.k)}</span></div>
+         <div class="lv-card-val">${it.v === null || it.v === undefined ? '—' : it.v}<span class="tip inline">${it.u}</span></div>`);
+      cards.appendChild(d);
+    }
+
+    const sampleN = res.count || res.longCount;
+    const winTxt = src.winMs
+      ? T('perf.frames.win', null, `最近 ${Math.round(src.winMs / 60000)} 分钟`)
+      : T('perf.frames.winall', null, '全部样本');
+    $('pf-caveat').innerHTML = T('perf.frames.caveat', null,
+      `${esc(res.caveat)}<br>
+       样本 <b>${sampleN}</b> ${res.longBasis === 'frame' ? '帧' : '秒'} · ${winTxt}
+       · 覆盖 ${Math.round((res.spanMs || 0) / 60000)} 分钟
+       · 来源 <code>${esc(src.modPath || '')}</code>
+       ${src.modBad ? `<br>另有 ${src.modBad} 行 JSON 解析失败（多半是正在写入的半截行）。` : ''}
+       ${res.derived ? '<br><b>注意：</b>这些分位数是从每秒 FPS 反推的，不是实测帧时间。' : ''}`);
+
+    $('pf-histsum').textContent = T('perf.frames.histsum', null,
+      `阈值 ${res.longMs} ms · 长帧 ${res.longCount} 个`);
+    const maxC = (res.histogram || []).reduce((m, h) => Math.max(m, h.count), 0) || 1;
+    for (const h of res.histogram || []) {
+      const px = Math.round((h.count / maxC) * 104);
+      const cls = h.from >= 50 ? 'bad' : (h.from >= 25 ? 'warn' : '');
+      const label = h.to === Infinity ? '> ' + fhEdge(h.from) : '<= ' + fhEdge(h.to);
+      const d = document.createElement('div');
+      d.className = 'fh-col';
+      d.innerHTML = T('perf.frames.bar', null,
+        `<div class="fh-n">${h.count ? Math.round(h.ratio * 100) + '%' : ''}</div>
+         <div class="fh-bar ${cls}" style="height:${Math.max(2, px)}px"></div>
+         <div class="fh-lb">${esc(label)}</div>`);
+      hist.appendChild(d);
+    }
+  }
+
+  async function paRun() {
+    const dir = $('pa-dir').value.trim();
+    if (!dir) { $('pa-corr').textContent = T('perf.attr.needdir', null, '请先指定游戏目录。'); return; }
+    $('pa-corr').textContent = T('perf.attr.running', null, '正在读日志并做时间关联…');
+    const res = await wapi.perfAttribute({
+      gameDir: dir,
+      saveDir: $('pa-savedir').value.trim(),
+      windowMs: Number($('pa-win').value) || 0
+    });
+    if (!res || res.error) {
+      $('pa-corr').textContent = T('world.err', null, '错误: ') + ((res && res.error) || '');
+      return;
+    }
+    pd.lastAttr = res;
+    paRender(res);
+  }
+
+  function paRender(res) {
+    const c = res.correlation || {};
+    const src = res.sources || {};
+    const tlc = res.timeline || {};
+    $('pa-badge').textContent = T('perf.attr.badge', null, `卡顿 ${res.stutterCount || 0} 次`);
+
+    $('pa-corr').innerHTML = T('perf.attr.corr', null,
+      `日志：${src.logPath ? esc(src.logPath) : T('perf.attr.nolog', null, '未找到 latest.log')}
+       （读 ${Math.round((src.logBytes || 0) / 1024)} KB）<br>
+       带时间戳的事件：GC <b>${tlc.gcCount || 0}</b> 次 · 卡顿 <b>${tlc.stutterCount || 0}</b> 次
+       · 区块加载 <b>${tlc.chunkCount || 0}</b> 次
+       ${res.spanMs ? ' · 覆盖 ' + Math.round(res.spanMs / 60000) + ' 分钟' : ''}
+       ${c.stutters ? `<br>关联窗口 ${c.windowMs}ms：GC 命中 <b>${c.gcMatched}/${c.stutters}</b>
+         （${Math.round(c.gcRate * 100)}%），区块加载命中 <b>${c.chunkMatched}/${c.stutters}</b>
+         （${Math.round(c.chunkRate * 100)}%）` : ''}
+       ${c.stutters ? `<br>随机重合基线约 ${Math.round(c.gcDensity * 100)}%，实际高出 ${Math.round(c.lift * 100)} 个百分点` : ''}
+       ${(res.caveats || []).length ? '<br>' + res.caveats.map((x) => '· ' + esc(x)).join('<br>') : ''}`);
+
+    const lvText = {
+      high: T('perf.attr.c.high', null, '高置信'),
+      medium: T('perf.attr.c.medium', null, '中等'),
+      low: T('perf.attr.c.low', null, '低置信')
+    };
+    const clsMap = { high: 'sev-error', medium: 'sev-warn', low: 'sev-info' };
+
+    const box = $('pa-cause');
+    box.innerHTML = '';
+    if (!(res.causes || []).length) {
+      box.innerHTML = T('perf.attr.nocause', null,
+        `<div class="empty">没有找到有证据支撑的归因。下面「未确定」里列了日志里查不到的东西。</div>`);
+    }
+    for (const f of res.causes) {
+      const d = document.createElement('div');
+      d.className = 'item ' + (clsMap[f.confidence] || 'sev-info');
+      const advice = (f.advice || []).map((a) => `<li>${esc(a)}</li>`).join('');
+      d.innerHTML = T('perf.attr.row', null,
+        `<div><div class="t">[${esc(lvText[f.confidence] || f.confidence)}] ${esc(f.name)}</div>
+          <div class="s">${bolden(f.evidence)}</div>
+          ${advice ? `<ul class="advice">${advice}</ul>` : ''}</div>`);
+      box.appendChild(d);
+    }
+
+    const ub = $('pa-unknown');
+    ub.innerHTML = '';
+    for (const u of res.undetermined || []) {
+      const d = document.createElement('div');
+      d.className = 'item';
+      const advice = (u.advice || []).map((a) => `<li>${esc(a)}</li>`).join('');
+      d.innerHTML = T('perf.attr.unknown', null,
+        `<div><div class="t">${esc(u.name)}</div><div class="s">${bolden(u.why)}</div>
+          ${advice ? `<ul class="advice">${advice}</ul>` : ''}</div>`);
+      ub.appendChild(d);
+    }
+  }
+
+  async function pcLoad() {
+    const dir = $('pc-dir').value.trim();
+    if (!dir) { $('pc-tip').textContent = T('perf.cmp.needdir', null, '请先指定游戏目录。'); return; }
+    const res = await wapi.perfSessions(dir);
+    const list = (res && res.sessions) || [];
+    pc.list = list;
+    const a = $('pc-a');
+    const b = $('pc-b');
+    a.innerHTML = '';
+    b.innerHTML = '';
+    if (!list.length) {
+      const empty = T('perf.cmp.none', null, `<option value="">没有找到日志</option>`);
+      a.innerHTML = empty;
+      b.innerHTML = empty;
+      $('pc-tip').textContent = T('perf.cmp.nologs', null, 'logs 目录里没有日志 —— 先开一次游戏。');
+      return;
+    }
+    for (const s of list) {
+      const label = `${s.file} · ${fmtSize(s.bytes)}`;
+      for (const sel of [a, b]) {
+        const o = document.createElement('option');
+        o.value = s.file;
+        o.textContent = label;
+        sel.appendChild(o);
+      }
+    }
+    // 默认 A = 上一份，B = 最新一份
+    a.value = list.length >= 2 ? list[1].file : list[0].file;
+    b.value = list[0].file;
+    $('pc-tip').innerHTML = T('perf.cmp.list', null,
+      `找到 <b>${list.length}</b> 份日志，按修改时间倒序。默认取「上一份 → 最新一份」。`);
+  }
+
+  async function pcRun() {
+    const dir = $('pc-dir').value.trim();
+    if (!dir) { $('pc-tip').textContent = T('perf.cmp.needdir', null, '请先指定游戏目录。'); return; }
+    const a = $('pc-a').value;
+    const b = $('pc-b').value;
+    if (!a || !b) { $('pc-tip').textContent = T('perf.cmp.needtwo', null, '请选择两份日志。'); return; }
+    if (a === b) { $('pc-tip').textContent = T('perf.cmp.samepick', null, '两份选的是同一个日志，请换一个。'); return; }
+    $('pc-badge').textContent = T('perf.cmp.running', null, '正在对比…');
+    const res = await wapi.perfCompare({ gameDir: dir, a, b });
+    if (!res || res.error) {
+      $('pc-badge').textContent = T('world.err', null, '错误: ') + ((res && res.error) || '');
+      return;
+    }
+    pcRender(res);
+  }
+
+  function pcRender(res) {
+    const overallText = {
+      better: T('perf.cmp.o.better', null, '整体变好'),
+      worse: T('perf.cmp.o.worse', null, '整体变差'),
+      mixed: T('perf.cmp.o.mixed', null, '互有升降'),
+      same: T('perf.cmp.o.same', null, '基本持平')
+    };
+    $('pc-badge').textContent = overallText[res.overall] || res.overall;
+
+    const verdictText = {
+      better: T('perf.cmp.v.better', null, '改善'),
+      worse: T('perf.cmp.v.worse', null, '变差'),
+      same: T('perf.cmp.v.same', null, '持平'),
+      changed: T('perf.cmp.v.changed', null, '有变化'),
+      na: T('perf.cmp.v.na', null, '不可比')
+    };
+
+    const box = $('pc-rows');
+    box.innerHTML = '';
+    const head = document.createElement('div');
+    head.className = 'cmp-row head';
+    head.innerHTML = T('perf.cmp.head', null,
+      `<div>指标</div><div>${esc(res.files.a)}</div><div>${esc(res.files.b)}</div>
+       <div>变化</div><div>幅度</div>`);
+    box.appendChild(head);
+
+    for (const r of res.rows) {
+      const d = document.createElement('div');
+      d.className = 'cmp-row ' + r.verdict;
+      d.title = verdictText[r.verdict] || '';
+      const sign = r.delta === null ? '' : (r.delta > 0 ? '+' : '');
+      d.innerHTML = T('perf.cmp.row', null,
+        `<div>${esc(r.name)}<span class="muted"> ${esc(r.unit)}</span></div>
+         <div>${r.a === null ? '—' : r.a}</div>
+         <div>${r.b === null ? '—' : r.b}</div>
+         <div class="d">${r.delta === null ? '—' : sign + r.delta}</div>
+         <div class="d">${r.pct === null ? '—' : (r.pct > 0 ? '+' : '') + r.pct + '%'}</div>`);
+      box.appendChild(d);
+    }
+
+    $('pc-caveat').innerHTML = (res.caveats || []).length
+      ? T('perf.cmp.caveat', null, `<b>说明：</b><br>`) + res.caveats.map((x) => '· ' + esc(x)).join('<br>')
+      : '';
+  }
+
 
   /* ============================================================
    * 实例账户绑定（V4 第五组 · R14）

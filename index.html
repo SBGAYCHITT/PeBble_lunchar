@@ -708,12 +708,23 @@
               <div id="cp-have" class="list mini"></div>
               <div class="row wrap"><label class="chk"><input type="checkbox" id="cp-uncraft" /> 允许拆解（方块→锭，可能成环）</label></div>
             </div>
+            <div class="card">
+              <div class="card-head"><span>配方表版本差异</span>
+                <span class="row"><button class="ghost-btn" id="cp-diff-pick">选配方文件…</button>
+                  <button class="ghost-btn" id="cp-diff-preview">预览差异</button>
+                  <button class="primary-btn" id="cp-diff-apply">应用导入</button></span></div>
+              <div class="tip">导入一份配方 JSON（<code>[...]</code> 或 <code>{ "recipes": [...] }</code>）用来对齐整合包/新版本。
+                <b>先预览再应用</b> —— 会列出这个版本多了什么、少了什么、材料数量变了多少。导入只影响本次运行，不写盘。</div>
+              <div id="cp-diff-src" class="tip"></div>
+              <div id="cp-diff-out" class="list mini"></div>
+            </div>
           </div><div class="col-right">
             <div class="card fill scroll">
               <div class="card-head"><span>材料清单</span><span id="cp-sum" class="tip inline"></span></div>
               <div id="cp-result" class="tip">尚未规划。左边加几样要合成的东西，再点「开始规划」。</div>
               <div id="cp-gaps" class="list"></div>
               <div id="cp-base" class="list"></div>
+              <div id="cp-stock" class="list mini"></div>
               <div id="cp-order" class="list"></div>
               <div id="cp-steps" class="list mini"></div>
             </div>
@@ -723,9 +734,12 @@
         <section class="page" id="page-perf"><div class="world-wrap">
           <div class="tabs" id="perf-tabs">
             <button class="tab active" data-ptab="diag">性能诊断</button>
+            <button class="tab" data-ptab="frames">帧时间分布</button>
+            <button class="tab" data-ptab="attr">卡顿归因</button>
             <button class="tab" data-ptab="tune">自动调参</button>
             <button class="tab" data-ptab="rules">检查项</button>
             <button class="tab" data-ptab="live">运行时监控</button>
+            <button class="tab" data-ptab="compare">会话对比</button>
           </div>
 
           <!-- 性能诊断 -->
@@ -753,6 +767,72 @@
               <div class="card-head"><span>诊断结果</span><span id="pd-score" class="tip inline"></span></div>
               <div id="pd-summary" class="tip">尚未诊断。</div>
               <div id="pd-findings" class="list"></div>
+            </div>
+          </div></div>
+
+          <!-- 帧时间分布（V5 第三组） -->
+          <div class="wtab" id="ptab-frames"><div class="col-left">
+            <div class="card">
+              <div class="card-head"><span>数据来源</span>
+                <span class="row"><button class="primary-btn" id="pf-run">分析帧时间</button></span></div>
+              <div class="row wrap"><label>游戏目录</label>
+                <input id="pf-dir" class="inp" placeholder=".minecraft 或版本隔离后的游戏目录" spellcheck="false" />
+                <button class="ghost-btn" id="pf-browse">浏览</button></div>
+              <div class="row wrap"><label>时间窗</label>
+                <select id="pf-win" class="sel">
+                  <option value="0">全部</option><option value="300000">最近 5 分钟</option>
+                  <option value="1800000">最近 30 分钟</option><option value="3600000">最近 1 小时</option>
+                </select>
+                <label>长帧阈值</label>
+                <select id="pf-long" class="sel">
+                  <option value="50">50 ms（约 20fps）</option>
+                  <option value="33.3">33.3 ms（约 30fps）</option>
+                  <option value="100">100 ms（约 10fps）</option>
+                </select></div>
+              <div class="tip">数据来自伴随 Mod 的 <code>pebble-metrics.jsonl</code>。日志里没有 FPS，所以这里<b>不估算</b>；没有 Mod 就明确显示「无数据」。</div>
+            </div>
+            <div class="card">
+              <div class="card-head"><span>口径说明</span></div>
+              <div id="pf-caveat" class="tip">尚未分析。</div>
+            </div>
+          </div><div class="col-right">
+            <div class="card fill scroll">
+              <div class="card-head"><span>分位数</span><span id="pf-badge" class="tip inline"></span></div>
+              <div id="pf-stats" class="lv-cards"></div>
+              <div class="card-head" style="margin-top:12px"><span>帧时间直方图</span><span id="pf-histsum" class="tip inline"></span></div>
+              <div id="pf-hist" class="fh-bars"></div>
+            </div>
+          </div></div>
+
+          <!-- 卡顿归因（V5 第三组） -->
+          <div class="wtab" id="ptab-attr"><div class="col-left">
+            <div class="card">
+              <div class="card-head"><span>归因数据来源</span>
+                <span class="row"><button class="primary-btn" id="pa-run">开始归因</button></span></div>
+              <div class="row wrap"><label>游戏目录</label>
+                <input id="pa-dir" class="inp" placeholder=".minecraft 或版本隔离后的游戏目录" spellcheck="false" />
+                <button class="ghost-btn" id="pa-browse">浏览</button></div>
+              <div class="row wrap"><label>存档目录</label>
+                <input id="pa-savedir" class="inp" placeholder="可选：看单区块实体峰值" spellcheck="false" />
+                <button class="ghost-btn" id="pa-savedir-browse">浏览</button></div>
+              <div class="row wrap"><label>关联窗口</label>
+                <select id="pa-win" class="sel">
+                  <option value="1000">1 秒内</option>
+                  <option value="2000" selected>2 秒内</option>
+                  <option value="5000">5 秒内</option>
+                </select></div>
+              <div class="tip"><b>只输出有证据的结论。</b>「日志里有 GC」不等于「卡顿是 GC 引起的」—— 这里把每次卡顿与它之前的 GC / 区块加载做时间关联，还会扣除「随机重合」的基线。</div>
+            </div>
+            <div class="card">
+              <div class="card-head"><span>时间关联</span></div>
+              <div id="pa-corr" class="tip">尚未分析。</div>
+            </div>
+          </div><div class="col-right">
+            <div class="card fill scroll">
+              <div class="card-head"><span>归因结论</span><span id="pa-badge" class="tip inline"></span></div>
+              <div id="pa-cause" class="list"></div>
+              <div class="card-head" style="margin-top:12px"><span>未确定（没有证据，不猜）</span></div>
+              <div id="pa-unknown" class="list mini"></div>
             </div>
           </div></div>
 
@@ -804,6 +884,25 @@
             <div class="card-head"><span>曲线</span><span id="lv-range" class="tip inline"></span></div>
             <div class="card-head"><span>卡顿记录</span><span id="lv-lagsum" class="tip inline"></span></div>
             <div id="lv-lag" class="list mini"></div>
+          </div></div>
+
+          <!-- 会话对比（V5 第三组） -->
+          <div class="wtab stack" id="ptab-compare"><div class="card">
+            <div class="card-head"><span>选择两次会话</span>
+              <span class="row"><button class="ghost-btn" id="pc-load">刷新日志列表</button>
+                <button class="primary-btn" id="pc-run">开始对比</button></span></div>
+            <div class="row wrap"><label>游戏目录</label>
+              <input id="pc-dir" class="inp" placeholder=".minecraft 或版本隔离后的游戏目录" spellcheck="false" />
+              <button class="ghost-btn" id="pc-browse">浏览</button></div>
+            <div class="row wrap"><label>之前（A）</label>
+              <select id="pc-a" class="sel wide"></select>
+              <label>之后（B）</label>
+              <select id="pc-b" class="sel wide"></select></div>
+            <div class="tip" id="pc-tip">改完参数后，用「之前」和「之后」两份日志对比。<b>变化幅度小于 2% 一律算持平</b> —— 不把噪声当成果。历史日志没有帧样本，帧相关的行会标「不可比」。</div>
+          </div><div class="card fill scroll">
+            <div class="card-head"><span>对比结果</span><span id="pc-badge" class="tip inline"></span></div>
+            <div id="pc-rows" class="cmp-rows"></div>
+            <div id="pc-caveat" class="tip"></div>
           </div></div>
         </div></section>
 

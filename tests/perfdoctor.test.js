@@ -251,6 +251,223 @@ t('systemProfile：返回合理结构', () => {
   assert.ok(p.platform.includes('/'));
 });
 
+/* ================================================================
+ * V5 第三组：帧时间分布 / 卡顿归因 / 会话对比
+ * ================================================================ */
+
+/** 造一行带 ISO 时间戳的日志（UTC，避免本地时区影响断言） */
+function tsAt(sec) {
+  const t = new Date(Date.UTC(2026, 9, 2, 3, 0, 0) + sec * 1000);
+  return '[' + t.toISOString().replace('Z', '+0000') + ']';
+}
+function gcLine(sec, ms) {
+  return `${tsAt(sec)}[info][gc] GC(1) Pause Young (Normal) 512M->128M(2048M) ${ms.toFixed(3)}ms`;
+}
+function stutterLine(sec, ms) {
+  return `${tsAt(sec)} [Server thread/WARN]: Can't keep up! Is the server overloaded? Running ${ms}ms or ${Math.floor(ms / 50)} ticks behind`;
+}
+
+/* ---------------- frameStats ---------------- */
+t('frameStats：没有样本时 available=false 且分位数为 null', () => {
+  const r = perf.frameStats([]);
+  assert.strictEqual(r.available, false);
+  assert.strictEqual(r.resolution, 'none');
+  assert.strictEqual(r.p50, null);
+  assert.strictEqual(r.p99, null);
+  assert.ok(r.caveat.length > 0, '要给出为什么没有数据');
+});
+
+t('frameStats：只有 fps → 标记为"每秒均值推算"（derived）', () => {
+  const r = perf.frameStats([{ t: 1, fps: 100 }, { t: 2, fps: 50 }]);
+  assert.strictEqual(r.resolution, 'second');
+  assert.strictEqual(r.derived, true, '必须承认这是反推的');
+  assert.strictEqual(r.longBasis, 'second');
+  assert.strictEqual(r.percentileBasis, 'second');
+  assert.strictEqual(r.p50, 15, '[10,20] 的中位数');
+  assert.strictEqual(r.longCount, 0);
+});
+
+t('frameStats：frameTimes → 逐帧分位数（不是推算）', () => {
+  const r = perf.frameStats([{ t: 1, frameTimes: [16, 17, 500] }]);
+  assert.strictEqual(r.resolution, 'frame');
+  assert.strictEqual(r.derived, false);
+  assert.strictEqual(r.count, 3);
+  assert.ok(r.p99 > 400, 'P99 必须反映那根 500ms 的长帧，实际 ' + r.p99);
+  assert.strictEqual(r.max, 500);
+});
+
+t('frameStats：frames + longFrames → 长帧占比精确', () => {
+  const r = perf.frameStats([
+    { t: 1, frames: 120, longFrames: 3 },
+    { t: 2, frames: 120, longFrames: 1 }
+  ]);
+  assert.strictEqual(r.resolution, 'frame-aggregate');
+  assert.strictEqual(r.longBasis, 'frame');
+  assert.strictEqual(r.longCount, 4);
+  assert.strictEqual(r.longRatio, Math.round((4 / 240) * 10000) / 10000, '占比按 4 位小数收敛');
+});
+
+t('frameStats：longFrames 超过 frames 时被夹紧（脏数据不放大占比）', () => {
+  const r = perf.frameStats([{ t: 1, frames: 10, longFrames: 999 }]);
+  assert.strictEqual(r.longRatio, 1);
+  assert.ok(r.longRatio <= 1);
+});
+
+t('frameStats：直方图比例之和为 1', () => {
+  const r = perf.frameStats([{ t: 1, fps: 144 }, { t: 2, fps: 60 }, { t: 3, fps: 20 }]);
+  const sum = r.histogram.reduce((s, h) => s + h.ratio, 0);
+  assert.ok(Math.abs(sum - 1) < 0.01, '实际 ' + sum);
+});
+
+t('frameStats：负数 / NaN 帧时间被丢弃', () => {
+  const r = perf.frameStats([{ t: 1, frameTimes: [-5, NaN, 0, 16.7] }]);
+  assert.strictEqual(r.count, 1);
+  assert.strictEqual(r.p50, 16.7);
+});
+
+/* ---------------- percentileOf ---------------- */
+t('percentileOf：边界与插值', () => {
+  const s = [10, 20, 30, 40, 50];
+  assert.strictEqual(perf.percentileOf(s, 0), 10);
+  assert.strictEqual(perf.percentileOf(s, 1), 50);
+  assert.strictEqual(perf.percentileOf(s, 0.5), 30);
+  assert.strictEqual(perf.percentileOf([], 0.5), null);
+  assert.strictEqual(perf.percentileOf([7], 0.99), 7);
+});
+
+/* ---------------- parseLogTimeline ---------------- */
+t('parseLogTimeline：抽出 GC / 卡顿 / 区块加载的时间轴', () => {
+  const log = [
+    gcLine(0, 30),
+    stutterLine(1, 800),
+    `${tsAt(2)} [Server thread/INFO]: Preparing spawn area: 42%`,
+    stutterLine(9, 1200)
+  ].join('\n');
+  const tl = perf.parseLogTimeline(log);
+  assert.strictEqual(tl.ok, true);
+  assert.strictEqual(tl.gc.length, 1);
+  assert.strictEqual(tl.stutter.length, 2);
+  assert.strictEqual(tl.chunk.length, 1);
+  assert.strictEqual(tl.spanMs, 9000);
+});
+
+t('parseLogTimeline：跨零点的时间戳不会算成负跨度', () => {
+  const log = [
+    '[23:59:59] [GC (Allocation Failure) 100M->20M(512M), 0.030000 secs]',
+    '[00:00:01] [Server thread/WARN]: Can\'t keep up! Is the server overloaded? Running 900ms behind'
+  ].join('\n');
+  const tl = perf.parseLogTimeline(log);
+  assert.strictEqual(tl.spanMs, 2000, '实际 ' + tl.spanMs);
+});
+
+t('parseLogTimeline：没有时间戳 → ok=false，事件不进时间轴', () => {
+  const tl = perf.parseLogTimeline('Can\'t keep up! Is the server overloaded? Running 900ms behind');
+  assert.strictEqual(tl.ok, false);
+  assert.strictEqual(tl.stutter.length, 0);
+});
+
+/* ---------------- correlateEvents ---------------- */
+t('correlateEvents：GC 在卡顿之前才算命中（因果方向不能反）', () => {
+  const before = perf.parseLogTimeline([gcLine(9, 200), stutterLine(10, 900)].join('\n'));
+  const after = perf.parseLogTimeline([stutterLine(10, 900), gcLine(11, 200)].join('\n'));
+  assert.strictEqual(perf.correlateEvents(before, 2000).gcMatched, 1);
+  assert.strictEqual(perf.correlateEvents(after, 2000).gcMatched, 0);
+});
+
+t('correlateEvents：窗口外不算命中', () => {
+  const tl = perf.parseLogTimeline([gcLine(0, 200), stutterLine(10, 900)].join('\n'));
+  assert.strictEqual(perf.correlateEvents(tl, 2000).gcMatched, 0);
+});
+
+/* ---------------- attributeStutter：有证据才归因 ---------------- */
+t('attributeStutter：3/5 次卡顿紧跟在 GC 后 → 高置信归因到 GC', () => {
+  const log = [
+    gcLine(9.5, 300), stutterLine(10, 1500),
+    gcLine(19.5, 280), stutterLine(20, 1400),
+    gcLine(29.5, 260), stutterLine(30, 1300),
+    stutterLine(40, 400), stutterLine(50, 350)
+  ].join('\n');
+  const r = perf.attributeStutter({ logText: log });
+  const gc = r.causes.find((c) => c.id === 'gc');
+  assert.ok(gc, '应该给出 GC 归因');
+  assert.strictEqual(gc.confidence, 'high');
+  assert.strictEqual(gc.basis, 'timeline');
+  assert.ok(gc.evidence.includes('3'), '证据里要有具体次数');
+});
+
+t('attributeStutter：有 GC 但与卡顿对不上 → 进"未确定"，不给结论', () => {
+  const log = [
+    gcLine(12, 200), gcLine(22, 200), gcLine(32, 200),
+    stutterLine(10, 1500), stutterLine(20, 1400), stutterLine(30, 1300)
+  ].join('\n');
+  const r = perf.attributeStutter({ logText: log });
+  assert.strictEqual(r.causes.filter((c) => c.id === 'gc').length, 0, '不能把同时发生当因果');
+  const u = r.undetermined.find((x) => x.id === 'gc');
+  assert.ok(u, '要出现在未确定里');
+  assert.ok(u.why.length > 0);
+});
+
+t('attributeStutter：没有时间戳 + 长停顿 → 低置信，并标明依据只是停顿长度', () => {
+  const log = [
+    '[GC (Allocation Failure) 100M->20M(512M), 0.300000 secs]',
+    'Can\'t keep up! Is the server overloaded? Running 2500ms behind'
+  ].join('\n');
+  const r = perf.attributeStutter({ logText: log });
+  const gc = r.causes.find((c) => c.id === 'gc');
+  assert.ok(gc);
+  assert.strictEqual(gc.confidence, 'low');
+  assert.strictEqual(gc.basis, 'log');
+});
+
+t('attributeStutter：实体热点是静态证据 → 只进"未确定"，不进结论', () => {
+  const log = [stutterLine(1, 900), stutterLine(2, 800)].join('\n');
+  const r = perf.attributeStutter({ logText: log, entityMax: 80 });
+  assert.strictEqual(r.causes.filter((c) => c.id === 'entities').length, 0);
+  const u = r.undetermined.find((x) => x.id === 'entities');
+  assert.ok(u);
+  assert.ok(u.why.includes('80'), '要写出实际观测值');
+});
+
+t('attributeStutter：OOM 是硬证据，直接高置信', () => {
+  const r = perf.attributeStutter({ logText: 'java.lang.OutOfMemoryError: Java heap space' });
+  const oom = r.causes.find((c) => c.id === 'oom');
+  assert.ok(oom);
+  assert.strictEqual(oom.confidence, 'high');
+});
+
+t('attributeStutter：没有卡顿时明确说不需要归因', () => {
+  const r = perf.attributeStutter({ logText: gcLine(1, 20) });
+  assert.strictEqual(r.stutterCount, 0);
+  assert.strictEqual(r.causes.length, 0);
+  assert.ok(r.caveats.some((c) => c.includes("Can't keep up")), '要说明日志里没有卡顿记录');
+});
+
+/* ---------------- compareSessions ---------------- */
+t('compareSessions：帧率变高 / 停顿变短 → 判定为变好', () => {
+  const a = perf.summarizeSession({ label: 'A', logText: gcLine(1, 120), samples: [{ t: 1, fps: 60 }] });
+  const b = perf.summarizeSession({ label: 'B', logText: gcLine(1, 40), samples: [{ t: 1, fps: 120 }] });
+  const r = perf.compareSessions(a, b);
+  assert.strictEqual(r.rows.find((x) => x.key === 'avgFps').verdict, 'better');
+  assert.strictEqual(r.rows.find((x) => x.key === 'gcMax').verdict, 'better');
+  assert.strictEqual(r.overall, 'better');
+  assert.ok(r.better >= 2);
+});
+
+t('compareSessions：变化小于 2% 算持平（不把噪声当成果）', () => {
+  const a = perf.summarizeSession({ label: 'A', logText: gcLine(1, 100) });
+  const b = perf.summarizeSession({ label: 'B', logText: gcLine(1, 101) });
+  const r = perf.compareSessions(a, b);
+  assert.strictEqual(r.rows.find((x) => x.key === 'gcMax').verdict, 'same');
+});
+
+t('compareSessions：一侧没有帧样本 → 帧相关行标不可比，并给出说明', () => {
+  const a = perf.summarizeSession({ label: 'A', logText: gcLine(1, 100) });
+  const b = perf.summarizeSession({ label: 'B', logText: gcLine(1, 50), samples: [{ t: 1, fps: 60 }] });
+  const r = perf.compareSessions(a, b);
+  assert.strictEqual(r.rows.find((x) => x.key === 'avgFps').verdict, 'na');
+  assert.ok(r.caveats.length > 0, '要说明为什么不可比');
+});
+
 console.log('===============');
 console.log(`${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

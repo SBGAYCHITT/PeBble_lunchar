@@ -690,6 +690,36 @@ input[type=range]::-webkit-slider-thumb {
 .lv-spark-wrap { height: 32px; margin: 1px 0; }
 .lv-spark { width: 100%; height: 32px; display: block; }
 
+/* ---------- 帧时间直方图（V5 第三组） ---------- */
+/* 用纯 CSS 柱子而不是 canvas：柱子数量固定 7 根，不需要重绘循环，
+   而且能直接跟着主题变量走，不用处理 devicePixelRatio。 */
+.fh-bars { display: flex; align-items: flex-end; gap: 6px; height: 152px; margin-top: 10px; padding: 0 2px; }
+.fh-col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; gap: 3px; }
+.fh-bar { width: 100%; border-radius: 5px 5px 0 0; background: var(--accent-grad); min-height: 2px; transition: height .18s ease; }
+.fh-bar.warn { background: linear-gradient(180deg, #e8a34a, #c98f2e); }
+.fh-bar.bad { background: linear-gradient(180deg, #f06a6a, #c93a3a); }
+.fh-n { font-size: 10px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.fh-lb { font-size: 9.5px; color: var(--text-dim); white-space: nowrap; }
+
+/* ---------- 会话对比表（V5 第三组） ---------- */
+.cmp-rows { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
+.cmp-row {
+  display: grid; grid-template-columns: 1.4fr .85fr .85fr .85fr .8fr; gap: 8px; align-items: center;
+  padding: 7px 9px; border-radius: 9px; font-size: 12px;
+  border-left: 3px solid transparent; font-variant-numeric: tabular-nums;
+}
+.cmp-row.head { color: var(--text-dim); font-size: 11px; padding-bottom: 0; padding-top: 2px; }
+.cmp-row.better { border-left-color: var(--good); background: rgba(74, 222, 128, .07); }
+.cmp-row.worse { border-left-color: #f06a6a; background: rgba(240, 106, 106, .07); }
+.cmp-row.same, .cmp-row.changed, .cmp-row.na { border-left-color: var(--border); }
+.cmp-row .d { color: var(--text-dim); }
+.cmp-row.better .d { color: var(--good); }
+.cmp-row.worse .d { color: #f06a6a; }
+.cmp-row .muted { color: var(--text-dim); opacity: .75; }
+
+/* 会话对比的两个日志下拉要能放下日期文件名 */
+.sel.wide { min-width: 196px; max-width: 260px; }
+
 /* 页签变多了（世界页 6 个、性能页 4 个）—— 允许换行，窄窗口下不会挤成一团 */
 #world-tabs, #perf-tabs { flex-wrap: wrap; }
 

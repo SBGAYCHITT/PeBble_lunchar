@@ -131,6 +131,30 @@ const must = (v, msg) => { if (!v) throw new Error(msg || '期望为真'); retur
     const r = await H['craft-plan'](null, { targets: ['smoke_widget'] });
     must(r.ok && r.plan.steps.length > 0, JSON.stringify(r.plan.steps).slice(0, 200));
   });
+  await t('craft-plan 目标带可行性标记与库存用量', async () => {
+    const r = await H['craft-plan'](null, { targets: [{ id: 'stick', n: 4 }], have: { stick: 10, diamond: 5 } });
+    must(r.ok, 'ok');
+    const t0 = r.plan.targets[0];
+    must(t0.ok === true, 'stick 应该可行：' + JSON.stringify(t0));
+    const st = (r.plan.stock || []).find((x) => x.id === 'stick');
+    must(st && st.used === 4 && st.left === 6, '库存用量应为 4/6：' + JSON.stringify(st));
+    must(r.plan.stockUnused === 1, '无关库存应被计数：' + r.plan.stockUnused);
+  });
+  await t('craft-recipe-diff 读文件并给出差异（不改全局）', async () => {
+    const fp = path.join(os.tmpdir(), 'pl-recipes-' + Date.now() + '.json');
+    fs.writeFileSync(fp, JSON.stringify({ recipes: [{ out: 'smoke_widget', n: 1, in: { stick: 3 } }] }));
+    const before = require('../craftplanner').recipesFor('smoke_widget')[0];
+    const r = await H['craft-recipe-diff'](null, { file: fp });
+    must(r.ok, JSON.stringify(r).slice(0, 200));
+    must(r.counts.changed === 1, 'smoke_widget 材料变了应算 changed：' + JSON.stringify(r.counts));
+    const after = require('../craftplanner').recipesFor('smoke_widget')[0];
+    must(after.in.stick === before.in.stick, '预览不能改全局配方表');
+    fs.unlinkSync(fp);
+  });
+  await t('craft-recipe-diff 文件不存在时 ok:false 而不是抛', async () => {
+    const r = await H['craft-recipe-diff'](null, { file: path.join(os.tmpdir(), 'no-such-recipes.json') });
+    must(r.ok === false && typeof r.error === 'string');
+  });
 
   console.log('=== livemetrics ===');
   await t('live-spec 返回协议', async () => {

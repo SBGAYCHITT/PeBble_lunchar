@@ -363,26 +363,198 @@ function rebuildIndex() {
 rebuildIndex();
 
 /**
+ * 把任意形式的配方规格化成内部结构（数组形式 / 对象形式都认）。
+ * 非法条目返回 null —— 调用方直接丢掉，不让脏数据进配方表。
+ * @param {Recipe|Array} r
+ * @returns {Recipe|null}
+ */
+function normalizeRecipe(r) {
+  if (!r) return null;
+  const rec = Array.isArray(r)
+    ? { out: r[0], n: Number(r[1]) || 1, in: r[2] || {}, via: r[3] || 'craft' }
+    : { out: r.out, n: Number(r.n) || 1, in: r.in || {}, via: r.via || 'craft' };
+  if (!rec.out || !rec.in || !Object.keys(rec.in).length) return null;
+
+  /** @type {Record<string, number>} */
+  const ing = Object.create(null);
+  for (const k of Object.keys(rec.in)) {
+    const n = Number(rec.in[k]);
+    if (!Number.isFinite(n) || n <= 0) continue;
+    // 标签（#planks）保持原样，普通物品去掉命名空间
+    const key = k.charAt(0) === '#' ? k : String(k).replace(/^minecraft:/, '');
+    ing[key] = Math.floor(n);
+  }
+  if (!Object.keys(ing).length) return null;
+  return {
+    out: String(rec.out).replace(/^minecraft:/, ''),
+    n: Math.max(1, Math.floor(Number(rec.n) || 1)),
+    in: ing,
+    via: String(rec.via || 'craft')
+  };
+}
+
+/**
+ * 算出「当前配方表 + 导入列表」会变成什么样，**不改全局状态**。
+ * @param {Array} list
+ * @param {{replace?:boolean}} [opts]
+ * @returns {Recipe[]}
+ */
+function tableWith(list, opts) {
+  const o = /** @type {any} */ (opts || {});
+  const out = o.replace ? [] : RECIPES.slice();
+  for (const r of (Array.isArray(list) ? list : [])) {
+    const rec = normalizeRecipe(r);
+    if (rec) out.push(rec);
+  }
+  return out;
+}
+
+/** 配方的"指纹"：产物数量 + 方式 + 有序材料表。材料表排序后再拼，避免键序差异。 */
+function recipeSig(r) {
+  const keys = Object.keys(r.in || {}).sort();
+  return r.n + '|' + r.via + '|' + keys.map((k) => k + '=' + r.in[k]).join(',');
+}
+
+/** 材料的人类可读列表（带中文名；标签标注"任一种"） */
+function ingList(r) {
+  if (!r) return [];
+  return Object.keys(r.in || {}).sort().map((k) => ({
+    key: k,
+    zh: k.charAt(0) === '#' ? (k.slice(1) + '（任一种）') : (itemZh(k) || k),
+    n: r.in[k]
+  }));
+}
+
+/** 把配方表按产物归并：一个产物可能有多条等价/备选配方 */
+function indexRecipes(list) {
+  const map = new Map();
+  for (const r of (Array.isArray(list) ? list : [])) {
+    if (!r || !r.out) continue;
+    const out = String(r.out);
+    if (!map.has(out)) map.set(out, { sigs: /** @type {Set<string>} */ (new Set()), reps: new Map() });
+    const e = map.get(out);
+    const sig = recipeSig(r);
+    e.sigs.add(sig);
+    if (!e.reps.has(sig)) e.reps.set(sig, r);
+  }
+  return map;
+}
+
+/** 两条配方之间的材料差异（供 UI 直说"少了什么、多了什么、数量变了多少"） */
+function ingDelta(before, after) {
+  const a = before.in || {};
+  const b = after.in || {};
+  const added = [];
+  const removed = [];
+  const changed = [];
+  for (const k of Object.keys(b)) {
+    if (!(k in a)) {
+      added.push({ key: k, zh: k.charAt(0) === '#' ? (k.slice(1) + '（任一种）') : (itemZh(k) || k), n: b[k] });
+    } else if (a[k] !== b[k]) {
+      changed.push({ key: k, zh: k.charAt(0) === '#' ? (k.slice(1) + '（任一种）') : (itemZh(k) || k), from: a[k], to: b[k] });
+    }
+  }
+  for (const k of Object.keys(a)) {
+    if (!(k in b)) {
+      removed.push({ key: k, zh: k.charAt(0) === '#' ? (k.slice(1) + '（任一种）') : (itemZh(k) || k), n: a[k] });
+    }
+  }
+  return { added, removed, changed, nBefore: before.n, nAfter: after.n, viaBefore: before.via, viaAfter: after.via };
+}
+
+/**
+ * 对比两套配方表 —— 「版本差异提示」的核心。
+ *
+ * 只比**产物层面**：同一个产物可能有多条配方（备选），所以一个产物的"指纹集合"变了才算 changed，
+ * 单纯的行顺序变化不算差异（否则表一重排就满屏"全变了"）。
+ *
+ * @param {Recipe[]} base 原配方表
+ * @param {Recipe[]} next 新配方表
+ * @returns {{ok:boolean, counts:{added:number,removed:number,changed:number,same:number},
+ *   rows:Array<object>, total:number}}
+ */
+function diffRecipes(base, next) {
+  const A = indexRecipes(base);
+  const B = indexRecipes(next);
+  const rows = [];
+  const counts = { added: 0, removed: 0, changed: 0, same: 0 };
+
+  for (const out of B.keys()) {
+    const b = B.get(out);
+    if (!A.has(out)) {
+      counts.added++;
+      const rep = b.reps.values().next().value;
+      rows.push({
+        out, zh: itemZh(out), kind: 'added', before: null,
+        after: { n: rep.n, via: rep.via, ing: ingList(rep) }
+      });
+      continue;
+    }
+    const a = A.get(out);
+    let same = a.sigs.size === b.sigs.size;
+    if (same) for (const s of a.sigs) if (!b.sigs.has(s)) { same = false; break; }
+    if (same) { counts.same++; continue; }
+
+    counts.changed++;
+    let beforeSig = null;
+    let afterSig = null;
+    for (const s of a.sigs) if (!b.sigs.has(s)) { beforeSig = s; break; }
+    for (const s of b.sigs) if (!a.sigs.has(s)) { afterSig = s; break; }
+    const beforeRep = beforeSig ? a.reps.get(beforeSig) : null;
+    const afterRep = afterSig ? b.reps.get(afterSig) : null;
+    rows.push({
+      out, zh: itemZh(out), kind: 'changed',
+      before: beforeRep ? { n: beforeRep.n, via: beforeRep.via, ing: ingList(beforeRep) } : null,
+      after: afterRep ? { n: afterRep.n, via: afterRep.via, ing: ingList(afterRep) } : null,
+      delta: beforeRep && afterRep ? ingDelta(beforeRep, afterRep) : null
+    });
+  }
+
+  for (const out of A.keys()) {
+    if (B.has(out)) continue;
+    counts.removed++;
+    const rep = A.get(out).reps.values().next().value;
+    rows.push({
+      out, zh: itemZh(out), kind: 'removed',
+      before: { n: rep.n, via: rep.via, ing: ingList(rep) }, after: null
+    });
+  }
+
+  // 新增的排前面（"这个版本多了什么"最需要先看到），然后是改了的，最后是被删的
+  const ORDER = { added: 0, changed: 1, removed: 2 };
+  rows.sort((x, y) => (ORDER[x.kind] - ORDER[y.kind]) || x.out.localeCompare(y.out));
+  return { ok: true, counts, rows, total: rows.length };
+}
+
+/**
+ * 预览导入结果（不落库、不改全局）—— UI 上先看差异，再决定要不要应用。
+ * @param {Array} list
+ * @param {{replace?:boolean}} [opts]
+ */
+function previewImport(list, opts) {
+  return diffRecipes(RECIPES, tableWith(list, opts));
+}
+
+/**
  * 追加配方（用于扩展包 / 新版本覆盖）。
+ * 返回值里带 `diff`，让调用方**当场看到这次导入改了什么** —— 版本差异提示就靠它。
  * @param {Array<Recipe|Array>} list 对象形式，或 `[out, n, in, via]` 数组形式
  * @param {{replace?:boolean}} [opts] replace=true 时先清空内置表
- * @returns {{ok:boolean, added:number, total:number}}
+ * @returns {{ok:boolean, added:number, total:number, diff:object}}
  */
 function importRecipes(list, opts) {
-  const ctx = /** @type {any} */ (opts || {});
-  if (ctx.replace) RECIPES.length = 0;
-  let added = 0;
-  for (const r of (Array.isArray(list) ? list : [])) {
-    if (!r) continue;
-    const rec = Array.isArray(r)
-      ? { out: r[0], n: Number(r[1]) || 1, in: r[2] || {}, via: r[3] || 'craft' }
-      : { out: r.out, n: Number(r.n) || 1, in: r.in || {}, via: r.via || 'craft' };
-    if (!rec.out || !rec.in || !Object.keys(rec.in).length) continue;
-    RECIPES.push(rec);
-    added++;
-  }
+  const src = Array.isArray(list) ? list : [];
+  const before = RECIPES.slice();
+  const after = tableWith(src, opts);
+  RECIPES.length = 0;
+  for (const r of after) RECIPES.push(r);
   rebuildIndex();
-  return { ok: true, added, total: RECIPES.length };
+  return {
+    ok: true,
+    added: after.length - before.length,
+    total: RECIPES.length,
+    diff: diffRecipes(before, after)
+  };
 }
 
 /**
@@ -451,12 +623,16 @@ function sourceOf(id) {
  * 规划合成。
  *
  * @param {Array<{id:string,n:number}>|Record<string,number>} targets 目标物品
- * @param {{have?:Record<string,number>, depth?:number, pick?:Function}} [opts]
- *   `have` 手上已有的数量（会被抵扣）；`pick(id, recipes)` 自定义多配方时的选择
+ * @param {{have?:Record<string,number>, depth?:number, pick?:Function,
+ *          allowUncraft?:boolean, _noDiag?:boolean}} [opts]
+ *   `have` 手上已有的数量（会被抵扣）；`pick(id, recipes)` 自定义多配方时的选择；
+ *   `_noDiag` 内部用：跳过"逐目标可行性"复算（避免递归）
  * @returns {{ok:boolean, targets:Array<object>, steps:Array<object>,
  *   base:Array<{id:string, zh:string, need:number, have:number, missing:number, source:string, sourceLabel:string}>,
+ *   stock:Array<{id:string, zh:string, have:number, used:number, left:number}>, stockUnused:number,
  *   totals:{kinds:number, items:number}, craftable:number, unresolved:Array<object>, tagChoice:Record<string,string>,
  *   need:Record<string,number>, unknown:Array<{key:string, qty:number}>}}
+ *   每个 target 上还带 `ok` 与 `blockers` —— 单独展开这个目标时卡在哪。
  */
 function plan(targets, opts) {
   const opt = /** @type {any} */ (opts || {});
@@ -595,15 +771,67 @@ function plan(targets, opts) {
     if (!ITEM_ZH[b.id]) unknown.push({ key: b.id, qty: b.missing });
   }
 
+  /* ---- 逐目标可行性 ----
+   * 主 plan 算的是"共享中间产物之后的合计"，它回答不了"具体是哪个目标做不出来"。
+   * 这里对每个目标单独再展开一遍（配方表很小，代价可接受），只为定位阻塞点。
+   * `_noDiag` 防止内层再递归一遍。
+   */
+  let targetsOut;
+  if (opt._noDiag) {
+    targetsOut = list.map(t => ({ ...t, zh: itemZh(t.id) }));
+  } else {
+    targetsOut = list.map((t) => {
+      let one = null;
+      try {
+        one = plan([t], { have: {}, depth: maxDepth, allowUncraft, pick, _noDiag: true });
+      } catch { one = null; }
+      /** @type {Array<{key:string,zh:string,reason:string}>} */
+      const blockers = [];
+      const seen = new Set();
+      if (one) {
+        for (const u of one.unresolved) {
+          if (seen.has(u.key)) continue;
+          seen.add(u.key);
+          blockers.push({ key: u.key, zh: u.key, reason: u.reason });
+        }
+        for (const b of one.base) {
+          // 既没有配方、又不在内置字典里 —— 才是真正的死路（模组物品多半属于这种）
+          if (choose(b.id) || ITEM_ZH[b.id] || seen.has(b.id)) continue;
+          seen.add(b.id);
+          blockers.push({ key: b.id, zh: itemZh(b.id), reason: 'unknown_item' });
+        }
+      }
+      return { ...t, zh: itemZh(t.id), ok: blockers.length === 0, blockers };
+    });
+  }
+
+  /* ---- 库存用量 ----
+   * "按库存自动裁剪"到底剪掉了多少，要能看见：哪些库存会被吃掉、哪些根本没被这条链路用到。
+   * 只列**参与规划**的物品（need 里有它）；库存里那些跟目标无关的不往里塞，只给个计数。
+   */
+  const stock = [];
+  let stockUnused = 0;
+  for (const id of Object.keys(have)) {
+    const h = Math.max(0, Number(have[id]) || 0);
+    if (!h) continue;
+    const n = need[id] || 0;
+    if (!n) { stockUnused++; continue; }
+    const used = Math.min(h, n);
+    stock.push({ id, zh: itemZh(id), have: h, used, left: h - used });
+  }
+  stock.sort((a, b) => b.used - a.used || a.id.localeCompare(b.id));
+
   return {
     ok: true,
-    targets: list.map(t => ({ ...t, zh: itemZh(t.id) })),
+    targets: targetsOut,
     need: Object.assign({}, need),
     base,
     steps,
     craftable: Object.keys(craftOf).length,
     unresolved,
     unknown,
+    stock,
+    stockUnused,
     tagChoice: Object.assign({}, tagChoice),
     totals: { kinds: base.length, items: Math.round(missingTotal * 100) / 100 }
   };
@@ -692,6 +920,7 @@ function inventoryOf(items) {
 module.exports = {
   ITEM_ZH, TAGS, RECIPES,
   itemZh, expandTag, recipesFor, stats, importRecipes,
+  normalizeRecipe, tableWith, recipeSig, diffRecipes, previewImport,
   sourceOf, plan, order, gaps, inventoryOf,
   WOODS, TIERS
 };

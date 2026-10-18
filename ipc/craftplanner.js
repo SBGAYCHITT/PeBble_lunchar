@@ -11,9 +11,37 @@
 //      真要用拆解时才显式传 `allowUncraft`。
 //   3) 配方表是进程级共享的，`craft-import` 是**追加**语义（给整合包补自定义配方），
 //      不做持久化 —— 重启即回到内置表。
+const fs = require('fs');
 const craftplanner = require('../craftplanner');
 const worlddb = require('../worlddb');
 const { safe } = require('./util');
+
+/** 配方 JSON 的上限：再大基本是选错文件了（正常配方表几十 KB） */
+const MAX_RECIPE_FILE = 4 * 1024 * 1024;
+
+/**
+ * 解析配方导入的来源：`o.file`（路径）或 `o.list`（直接给数组）。
+ * 文件格式：`[...]` 或 `{ "recipes": [...] }` —— 后者方便带元信息。
+ * @param {{file?:string, list?:any}} o
+ * @returns {Array}
+ */
+function readRecipeInput(o) {
+  const opt = o || {};
+  if (opt.file) {
+    const st = fs.statSync(opt.file);
+    if (!st.isFile()) throw new Error('不是一个文件：' + opt.file);
+    if (st.size > MAX_RECIPE_FILE) throw new Error('配方文件超过 4MB，大概率选错了。');
+    const text = fs.readFileSync(opt.file, 'utf8');
+    let parsed;
+    try { parsed = JSON.parse(text); } catch (e) { throw new Error('JSON 解析失败：' + e.message); }
+    const list = Array.isArray(parsed) ? parsed : (parsed && (parsed.recipes || parsed.list));
+    if (!Array.isArray(list)) throw new Error('格式不对：需要数组，或 { "recipes": [...] }。');
+    return list;
+  }
+  const list = Array.isArray(opt.list) ? opt.list : (opt.list && opt.list.recipes);
+  if (!Array.isArray(list)) throw new Error('没有可用的配方列表。');
+  return list;
+}
 
 /** 所有可被搜到的物品 id：字典里的 + 所有配方的输出 */
 function allItemIds() {
@@ -177,14 +205,27 @@ module.exports = function register(ctx) {
   }));
 
   /**
+   * 预览配方差异（**不改全局配方表**）—— 版本差异提示。
+   * @param {{file?:string, list?:Array, replace?:boolean}} o
+   */
+  ipcMain.handle('craft-recipe-diff', safe((_e, o) => {
+    const opt = o || {};
+    const list = readRecipeInput(opt);
+    if (!list.length) return { ok: false, error: '这份配方表是空的。' };
+    const diff = craftplanner.previewImport(list, { replace: !!opt.replace });
+    return Object.assign({ ok: true, source: opt.file || 'inline', provided: list.length }, diff);
+  }));
+
+  /**
    * 追加自定义配方（整合包 / 模组物品）。**只影响当前进程**，不落盘。
-   * @param {{list:Array, replace?:boolean}} o
+   * 返回值带 `diff`：这次导入到底改了什么。
+   * @param {{list?:Array, file?:string, replace?:boolean}} o
    */
   ipcMain.handle('craft-import', safe((_e, o) => {
     const opt = o || {};
-    const list = Array.isArray(opt.list) ? opt.list : (opt.list && opt.list.recipes);
-    if (!Array.isArray(list) || !list.length) return { ok: false, error: '没有可导入的配方。' };
+    const list = readRecipeInput(opt);
+    if (!list.length) return { ok: false, error: '没有可导入的配方。' };
     const r = craftplanner.importRecipes(list, { replace: !!opt.replace });
-    return Object.assign({ ok: true, stats: craftplanner.stats() }, r);
+    return Object.assign({ ok: true, stats: craftplanner.stats(), source: opt.file || 'inline' }, r);
   }));
 };

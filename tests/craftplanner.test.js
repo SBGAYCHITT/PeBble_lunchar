@@ -373,6 +373,126 @@ t('importRecipes：追加的配方能被规划使用', () => {
   assert.ok(p.base.some(b => /_log$/.test(b.id)), '一路回溯到原木');
 });
 
+/* ================================================================
+ * V5 第三组：配方版本差异 / 逐目标可行性 / 库存用量
+ * ================================================================ */
+
+/* ---------------- normalizeRecipe ---------------- */
+t('normalizeRecipe：对象与数组两种写法都认', () => {
+  const a = cp.normalizeRecipe({ out: 'minecraft:stick', n: 4, in: { 'minecraft:#planks': 1 } });
+  assert.strictEqual(a.out, 'stick');
+  assert.strictEqual(a.n, 4);
+  assert.strictEqual(a.in['#planks'], 1, '标签要去掉命名空间但保留 #');
+  const b = cp.normalizeRecipe(['torch', 4, { stick: 1, coal: 1 }, 'craft']);
+  assert.strictEqual(b.out, 'torch');
+  assert.strictEqual(b.in.coal, 1);
+});
+
+t('normalizeRecipe：非法条目返回 null', () => {
+  assert.strictEqual(cp.normalizeRecipe(null), null);
+  assert.strictEqual(cp.normalizeRecipe({}), null);
+  assert.strictEqual(cp.normalizeRecipe({ out: 'x' }), null);
+  assert.strictEqual(cp.normalizeRecipe({ out: 'x', in: { a: 0 } }), null, '数量 0 的材料应被丢掉');
+});
+
+t('recipeSig：材料顺序不影响指纹', () => {
+  const a = cp.recipeSig({ n: 1, via: 'craft', in: { coal: 1, stick: 1 } });
+  const b = cp.recipeSig({ n: 1, via: 'craft', in: { stick: 1, coal: 1 } });
+  assert.strictEqual(a, b);
+});
+
+/* ---------------- diffRecipes ---------------- */
+t('diffRecipes：新增 / 移除 / 改动 / 未变 分类正确', () => {
+  const A = [
+    { out: 'stick', n: 4, in: { '#planks': 1 }, via: 'craft' },
+    { out: 'torch', n: 4, in: { stick: 1, coal: 1 }, via: 'craft' },
+    { out: 'old_thing', n: 1, in: { stick: 1 }, via: 'craft' }
+  ];
+  const B = [
+    { out: 'stick', n: 4, in: { '#planks': 1 }, via: 'craft' },
+    { out: 'torch', n: 4, in: { stick: 1, charcoal: 1 }, via: 'craft' },
+    { out: 'new_thing', n: 2, in: { stick: 2 }, via: 'craft' }
+  ];
+  const d = cp.diffRecipes(A, B);
+  assert.strictEqual(d.counts.added, 1);
+  assert.strictEqual(d.counts.removed, 1);
+  assert.strictEqual(d.counts.changed, 1);
+  assert.strictEqual(d.counts.same, 1);
+  assert.strictEqual(d.rows.length, 3);
+  assert.strictEqual(d.rows[0].kind, 'added', '新增排最前');
+});
+
+t('diffRecipes：改动行给出材料增减', () => {
+  const d = cp.diffRecipes(
+    [{ out: 'torch', n: 4, in: { stick: 1, coal: 1 } }],
+    [{ out: 'torch', n: 4, in: { stick: 2, charcoal: 1 } }]
+  );
+  const row = d.rows.find((r) => r.out === 'torch');
+  assert.ok(row.delta, '要有 delta');
+  assert.deepStrictEqual(row.delta.added.map((x) => x.key), ['charcoal']);
+  assert.deepStrictEqual(row.delta.removed.map((x) => x.key), ['coal']);
+  assert.strictEqual(row.delta.changed[0].from, 1);
+  assert.strictEqual(row.delta.changed[0].to, 2);
+});
+
+t('diffRecipes：同产物多加一条备选配方也算改动', () => {
+  const d = cp.diffRecipes(
+    [{ out: 'x', n: 1, in: { a: 1 } }],
+    [{ out: 'x', n: 1, in: { a: 1 } }, { out: 'x', n: 1, in: { b: 1 } }]
+  );
+  assert.strictEqual(d.counts.changed, 1);
+  assert.strictEqual(d.counts.same, 0);
+});
+
+t('diffRecipes：完全一致时 rows 为空', () => {
+  const A = [{ out: 'x', n: 1, in: { a: 1 } }];
+  const d = cp.diffRecipes(A, A.slice());
+  assert.strictEqual(d.total, 0);
+  assert.strictEqual(d.counts.same, 1);
+});
+
+/* ---------------- previewImport / importRecipes ---------------- */
+t('previewImport：只预览，不改全局配方表', () => {
+  const n = cp.RECIPES.length;
+  const d = cp.previewImport([{ out: 'zz_preview_only', n: 1, in: { stick: 1 } }]);
+  assert.strictEqual(cp.RECIPES.length, n, '全局表不该变长');
+  assert.strictEqual(cp.recipesFor('zz_preview_only').length, 0, '也不该能查到');
+  assert.strictEqual(d.counts.added, 1);
+});
+
+t('importRecipes：返回值带 diff', () => {
+  const r = cp.importRecipes([{ out: 'zz_import_diff', n: 1, in: { stick: 1 } }]);
+  assert.strictEqual(r.added, 1);
+  assert.ok(r.diff && r.diff.counts.added === 1, '导入结果要能当场看到改了什么');
+  assert.strictEqual(cp.recipesFor('zz_import_diff').length, 1);
+});
+
+/* ---------------- plan：可行性与库存用量 ---------------- */
+t('plan：每个目标带 ok / blockers', () => {
+  const p = cp.plan([{ id: 'stick', n: 4 }]);
+  assert.strictEqual(p.targets[0].ok, true);
+  assert.deepStrictEqual(p.targets[0].blockers, []);
+});
+
+t('plan：没有配方也不认识的物品 → blocker', () => {
+  const p = cp.plan([{ id: 'zz_totally_unknown_xyz', n: 1 }]);
+  const t0 = p.targets[0];
+  assert.strictEqual(t0.ok, false);
+  assert.ok(t0.blockers.some((b) => b.reason === 'unknown_item'), JSON.stringify(t0.blockers));
+});
+
+t('plan：库存用量只统计参与规划的物品', () => {
+  const p = cp.plan([{ id: 'stick', n: 4 }], { have: { stick: 10, diamond: 5 } });
+  const st = p.stock.find((x) => x.id === 'stick');
+  assert.deepStrictEqual({ have: st.have, used: st.used, left: st.left }, { have: 10, used: 4, left: 6 });
+  assert.strictEqual(p.stockUnused, 1, 'diamond 与本次目标无关');
+});
+
+t('plan：库存够时不留基础材料', () => {
+  const p = cp.plan([{ id: 'stick', n: 4 }], { have: { stick: 10 } });
+  assert.strictEqual(p.base.length, 0);
+});
+
 console.log('==================');
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
