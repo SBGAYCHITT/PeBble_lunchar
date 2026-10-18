@@ -12,8 +12,23 @@
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
-const { app, shell, Notification } = require('electron');
+const { app, shell, Notification, net } = require('electron');
 const updater = require('../updater');
+
+/**
+ * 更新检查与下载统一走 Chromium 的网络栈（net.fetch）。
+ *
+ * 为什么不用全局 fetch：Electron 主进程里的 fetch 是 Node 的 undici，
+ * **不读系统代理**。大陆用户基本靠 Watt Toolkit 之类的系统代理访问 GitHub，
+ * 用 undici 会直接超时 —— 检查更新永远失败、下载也永远失败，而且报错只有一句「网络不可达」。
+ * net.fetch 跟浏览器走同一套代理解析，系统代理开着就能用。
+ */
+function netFetch() {
+  try {
+    if (net && typeof net.fetch === 'function') return net.fetch.bind(net);
+  } catch { /* 老版本 Electron 没有 net.fetch，退回调用方的默认实现 */ }
+  return undefined;
+}
 
 /** 同一时刻只允许一个下载任务 */
 /** @type {{cancelled:boolean, version:string, dest:string, percent:number, received:number, total:number, speed:number}|null} */
@@ -93,6 +108,7 @@ function runDownload(o, ctx) {
     dest: o.dest,
     sha256: o.sha256,
     size: o.size,
+    fetchImpl: netFetch(),
     isCancelled: () => !!(job && job.cancelled),
     onProgress: (p) => { if (job) Object.assign(job, p); push(Object.assign({ phase: 'downloading' }, p)); }
   }).then((r) => {
@@ -122,8 +138,9 @@ module.exports = function register(ctx) {
   /** 下载目录：放在 userData 下，和游戏目录分开；换游戏目录不会把下好的包丢了 */
   const updatesDir = () => path.join(ctx.userData, 'updates');
 
-  /** 当前生效的更新源：玩家没填就回落到官方源（见 updater.effectiveFeedUrl） */
-  const feedOf = () => updater.effectiveFeedUrl(ctx.getSysConf().updateFeed);
+  /** 当前生效的更新源列表：玩家没填就是官方主源 + 备用源 */
+  const feedCandidates = () => updater.effectiveFeedUrls(ctx.getSysConf().updateFeed);
+  const feedOf = () => feedCandidates()[0];
 
   staged = scanStaged(updatesDir());   // 上次下载没来得及装，这次接着用
 
@@ -137,7 +154,11 @@ module.exports = function register(ctx) {
     if (ctx.getSysConf().autoUpdateCheck === false) return;
     autoChecking = true;
     try {
-      const r = await updater.checkUpdate({ feedUrl: feedOf(), currentVersion: app.getVersion() });
+      const r = await updater.checkUpdateAny({
+        feedUrls: feedCandidates(),
+        currentVersion: app.getVersion(),
+        fetchImpl: netFetch()
+      });
       if (!r || !r.ok || !r.hasUpdate) return;
       if (r.latestVersion === notifiedVersion) return;
       notifiedVersion = r.latestVersion;
@@ -173,8 +194,13 @@ module.exports = function register(ctx) {
   /* ---------- 检查 ---------- */
 
   ipcMain.handle('update-check', async (_e, feedUrl) => {
-    const url = String(feedUrl || '').trim() || feedOf();
-    const r = await updater.checkUpdate({ feedUrl: url, currentVersion: app.getVersion() });
+    // 手动检查时如果输入框里有地址，就只认它；空着走「主源 → 备用源」
+    const typed = String(feedUrl || '').trim();
+    const r = await updater.checkUpdateAny({
+      feedUrls: typed ? [typed] : feedCandidates(),
+      currentVersion: app.getVersion(),
+      fetchImpl: netFetch()
+    });
     if (r.ok && r.hasUpdate && Notification.isSupported()) {
       new Notification({
         title: 'Pebble Launcher 有新版本 ' + r.latestVersion,
@@ -188,7 +214,7 @@ module.exports = function register(ctx) {
     // 存原样（空字符串表示"用官方源"）；不要把它写成官方地址，
     // 否则以后官方源换域名，老用户就被钉在旧地址上再也收不到更新。
     ctx.patchSysConf({ updateFeed: String(url || '').trim() });
-    return { ok: true, updateFeed: ctx.getSysConf().updateFeed, effective: feedOf() };
+    return { ok: true, updateFeed: ctx.getSysConf().updateFeed, effective: feedOf(), feeds: feedCandidates() };
   });
 
   ipcMain.handle('update-auto-set', (_e, on) => {
@@ -204,6 +230,7 @@ module.exports = function register(ctx) {
       ok: true,
       currentVersion: app.getVersion(),
       feed: feedOf(),
+      feeds: feedCandidates(),
       feedConfigured: ctx.getSysConf().updateFeed || '',
       autoUpdateCheck: ctx.getSysConf().autoUpdateCheck !== false,
       target: t.path,

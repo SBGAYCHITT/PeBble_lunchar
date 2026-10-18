@@ -27,6 +27,23 @@ const crypto = require('crypto');
  */
 const DEFAULT_FEED_URL = 'https://pebble-site.shitsmart.deno.net/api/update/latest';
 
+/**
+ * 备用更新源，按顺序尝试。
+ *
+ * 教训：2026-10-18 Deno Deploy 免费额度用超，整个官网 503（USAGE_EXCEEDED），
+ * 更新检查跟着一起哑了 —— 单一更新源 = 单一故障点。
+ * 现在把清单同时作为 Release 资产传一份（`releases/latest/download/latest.json`，
+ * 永远指向最新一次发布），再加一个 jsDelivr 镜像（大陆通常可达）。
+ * 三个地址互相独立，任何一个活着，更新就能查。
+ */
+const FALLBACK_FEED_URLS = [
+  'https://github.com/SBGAYCHITT/PeBble_lunchar/releases/latest/download/latest.json',
+  'https://cdn.jsdelivr.net/gh/SBGAYCHITT/pebble-site@main/data/latest.json',
+];
+
+/** 官方源集合（第一个是主源） */
+const DEFAULT_FEED_URLS = [DEFAULT_FEED_URL, ...FALLBACK_FEED_URLS];
+
 /** 检查更新时的总超时（这只是拿一个小 JSON，够用） */
 const CHECK_TIMEOUT_MS = 15000;
 /** 下载时用的是「无数据超时」而不是总超时 —— 79MB 在慢网络下总超时必然误杀 */
@@ -43,6 +60,18 @@ const PROGRESS_STEP_MS = 200;
 function effectiveFeedUrl(configured) {
   const s = String(configured == null ? '' : configured).trim();
   return s || DEFAULT_FEED_URL;
+}
+
+/**
+ * 按顺序要尝试的更新源。
+ * 玩家自己填了地址就**只**试它（他可能指向自己的分支，别拿官方包去覆盖），
+ * 没填才用官方主源 + 备用源。
+ * @param {unknown} configured
+ * @returns {string[]}
+ */
+function effectiveFeedUrls(configured) {
+  const s = String(configured == null ? '' : configured).trim();
+  return s ? [s] : DEFAULT_FEED_URLS.slice();
 }
 
 /**
@@ -102,7 +131,7 @@ function canAutoInstall(feed) {
 
 /**
  * 检查更新
- * @param {{feedUrl:string, currentVersion:string, timeoutMs?:number}} [o]
+ * @param {{feedUrl:string, currentVersion:string, timeoutMs?:number, fetchImpl?:any}} [o]
  * @returns {Promise<{ok:boolean, hasUpdate?:boolean, currentVersion?:string,
  *                    latestVersion?:string, notes?:string, url?:string,
  *                    publishedAt?:string, sha256?:string, size?:number,
@@ -114,7 +143,10 @@ async function checkUpdate(o) {
   const feedUrl = String(opt.feedUrl || '').trim();
   if (!feedUrl) return { ok: false, error: '未配置更新源地址' };
   if (!/^https?:\/\//i.test(feedUrl)) return { ok: false, error: '更新源地址必须是 http(s) 链接' };
-  if (typeof fetch !== 'function') return { ok: false, error: '当前运行环境不支持网络请求' };
+  // fetchImpl 由 Electron 层注入（net.fetch 走 Chromium 网络栈，认系统代理）；
+  // Node 自带的 fetch(undici) 不读系统代理，大陆直连 GitHub 会直接超时。
+  const doFetch = opt.fetchImpl || (typeof fetch === 'function' ? fetch : null);
+  if (!doFetch) return { ok: false, error: '当前运行环境不支持网络请求' };
 
   const timeoutMs = opt.timeoutMs || CHECK_TIMEOUT_MS;
   const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
@@ -122,7 +154,7 @@ async function checkUpdate(o) {
   try {
     /** @type {any} */
     const init = Object.assign({ redirect: /** @type {any} */ ('follow') }, ctrl ? { signal: ctrl.signal } : {});
-    const res = await fetch(feedUrl, init);
+    const res = await doFetch(feedUrl, init);
     if (!res.ok) return { ok: false, error: '更新源返回 HTTP ' + res.status };
     const json = /** @type {any} */ (await res.json());
     const feed = parseFeed(json);
@@ -148,6 +180,38 @@ async function checkUpdate(o) {
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+/**
+ * 依次尝试多个更新源，返回第一个成功的。
+ * 单个源超时压到 8 秒：三个源全挂时，不能让玩家干等 45 秒才知道「查不到」。
+ *
+ * @param {{feedUrls:string[], currentVersion:string, timeoutMs?:number,
+ *          onTry?:(url:string, index:number)=>void}} o
+ * @returns {Promise<any>}
+ */
+async function checkUpdateAny(o) {
+  const opt = /** @type {any} */ (o || {});
+  const list = (Array.isArray(opt.feedUrls) ? opt.feedUrls : [])
+    .map((u) => String(u || '').trim()).filter(Boolean);
+  if (!list.length) return { ok: false, error: '未配置更新源地址' };
+  const perTry = opt.timeoutMs || Math.min(CHECK_TIMEOUT_MS, 8000);
+  /** @type {any} */
+  let last = null;
+  for (let i = 0; i < list.length; i++) {
+    if (typeof opt.onTry === 'function') {
+      try { opt.onTry(list[i], i); } catch { /* 回调出错不影响检查本身 */ }
+    }
+    const r = await checkUpdate({
+      feedUrl: list[i],
+      currentVersion: opt.currentVersion,
+      timeoutMs: perTry,
+      fetchImpl: opt.fetchImpl
+    });
+    if (r && r.ok) return Object.assign({}, r, { feedUrlUsed: list[i], tried: i + 1 });
+    last = r;
+  }
+  return Object.assign({}, last || { ok: false, error: '所有更新源都不可用' }, { tried: list.length });
 }
 
 /** 挂自定义字段的 Error（tsconfig 的 checkJs 下必须标 any，同 worldmerge/pebblecloud 的写法） */
@@ -402,7 +466,7 @@ function applyUpdate(o) {
 }
 
 module.exports = {
-  DEFAULT_FEED_URL, CHECK_TIMEOUT_MS, STALL_TIMEOUT_MS,
-  effectiveFeedUrl, compareVersion, parseFeed, canAutoInstall, checkUpdate,
-  downloadUpdate, buildApplyScript, applyUpdate
+  DEFAULT_FEED_URL, DEFAULT_FEED_URLS, FALLBACK_FEED_URLS, CHECK_TIMEOUT_MS, STALL_TIMEOUT_MS,
+  effectiveFeedUrl, effectiveFeedUrls, compareVersion, parseFeed, canAutoInstall,
+  checkUpdate, checkUpdateAny, downloadUpdate, buildApplyScript, applyUpdate
 };

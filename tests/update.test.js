@@ -90,6 +90,19 @@ t('官方源必须是 https 且指向更新清单接口', () => {
   assert.ok(/^https:\/\//.test(updater.DEFAULT_FEED_URL));
   assert.ok(/\/api\/update\/latest$/.test(updater.DEFAULT_FEED_URL));
 });
+t('没填时按「主源 → 备用源」排队，且至少两个独立地址', () => {
+  const urls = updater.effectiveFeedUrls('');
+  assert.ok(urls.length >= 2, '只有一个源 = 单点故障');
+  assert.strictEqual(urls[0], updater.DEFAULT_FEED_URL);
+  assert.deepStrictEqual([...new Set(urls)], urls, '别把同一个地址试两遍');
+  for (const u of urls) assert.ok(/^https:\/\//.test(u), u + ' 不是 https');
+  // 主源和备用源必须在不同域名上，否则一起挂
+  const hosts = new Set(urls.map((u) => new URL(u).host));
+  assert.ok(hosts.size >= 2, '主备源共用域名，起不到兜底作用');
+});
+t('玩家填了自己的源就不要再试官方源（避免拿官方包覆盖别人的分支）', () => {
+  assert.deepStrictEqual(updater.effectiveFeedUrls('https://my.test/u.json'), ['https://my.test/u.json']);
+});
 
 /* ---------- feed 校验 ---------- */
 console.log('\n--- feed 校验 ---');
@@ -158,6 +171,40 @@ await ta('更新源 404 时报 HTTP 错误而不是崩', async () => {
   );
   assert.strictEqual(r.ok, false);
   assert.ok(r.error.indexOf('404') >= 0, r.error);
+});
+
+await ta('主源 503 时自动试备用源（2026-10-18 官网被 Deno 停机的教训）', async () => {
+  const feed = { version: '5.1.0', url: 'https://x/a.exe', sha256: 'b'.repeat(64), size: 4096 };
+  const seen = [];
+  const r = await withFetch(
+    async (u) => {
+      seen.push(String(u));
+      if (String(u).indexOf('dead') >= 0) return { ok: false, status: 503, json: async () => ({}) };
+      return { ok: true, status: 200, json: async () => feed };
+    },
+    () => updater.checkUpdateAny({
+      feedUrls: ['https://dead.test/feed.json', 'https://alive.test/feed.json'],
+      currentVersion: '5.0.0'
+    })
+  );
+  assert.strictEqual(r.ok, true, r.error);
+  assert.strictEqual(r.hasUpdate, true);
+  assert.strictEqual(r.feedUrlUsed, 'https://alive.test/feed.json');
+  assert.strictEqual(r.tried, 2);
+  assert.deepStrictEqual(seen, ['https://dead.test/feed.json', 'https://alive.test/feed.json']);
+});
+
+await ta('所有源都失败时把最后一次的错误原样带回（不假装成功）', async () => {
+  const r = await withFetch(
+    async () => ({ ok: false, status: 503, json: async () => ({}) }),
+    () => updater.checkUpdateAny({
+      feedUrls: ['https://a.test/f.json', 'https://b.test/f.json'],
+      currentVersion: '5.0.0'
+    })
+  );
+  assert.strictEqual(r.ok, false);
+  assert.ok(r.error.indexOf('503') >= 0, r.error);
+  assert.strictEqual(r.tried, 2);
 });
 
 /* ---------- 下载 ---------- */
