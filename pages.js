@@ -664,7 +664,10 @@
   async function refreshRes(kind) {
     const el = buildResPage(kind);
     const box = el.querySelector('.res-list');
-    const list = await RES_META[kind].fn()(resDir(kind));
+    // 这里必须传「游戏根目录」，不是 resDir(kind)。
+    // listMods / listResourcepacks / listShaderpacks 内部会自己拼子目录名，
+    // 传 resDir 会变成 ...\mods\mods —— 目录不存在 → 列表永远空（玩家以为 Mod 没装上）。
+    const list = await RES_META[kind].fn()(gameDir());
     box.innerHTML = '';
     if (!list.length) {
       box.innerHTML = T("pg.L641C80", null, `<div class="empty">目录为空<br /><small>${esc(resDir(kind))}</small></div>`);
