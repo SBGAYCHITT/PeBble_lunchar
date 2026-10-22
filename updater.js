@@ -25,7 +25,7 @@ const crypto = require('crypto');
  * 官方更新源。客户端**开箱即用**的关键：不填也能查，不用玩家自己找 JSON 地址。
  * 官网与更新源是同一个 Deno Deploy 应用，读的是同一份 data/latest.json。
  */
-const DEFAULT_FEED_URL = 'https://pebble-site.shitsmart.deno.net/api/update/latest';
+const DEFAULT_FEED_URL = 'https://pebble-site-oea.pages.dev/api/update/latest';
 
 /**
  * 备用更新源，按顺序尝试。

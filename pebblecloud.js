@@ -42,9 +42,13 @@ const fs = require('fs');
 const path = require('path');
 
 /** 默认后端地址。可以用环境变量 PEBBLE_CLOUD_ENDPOINT 或 configure({endpoint}) 覆盖，
- *  方便自建后端 / 内网联调，而不用改源码。 */
-const ENDPOINT_DEFAULT = 'https://rusty-ferret-9754.shitsmart.deno.net';
-/** 请求超时。Deno Deploy 冷启动实测要 4 秒左右，30 秒足够，也不至于把界面卡到像死机。 */
+ *  方便自建后端 / 内网联调，而不用改源码。
+ *
+ *  历史：原本指向 Deno Deploy（rusty-ferret-9754.shitsmart.deno.net），
+ *  2026-10-18 那个应用因免费额度用超被挂起（503 USAGE_EXCEEDED），
+ *  现在换成 Cloudflare Pages Functions 版（KV 存储，接口完全兼容）。 */
+const ENDPOINT_DEFAULT = 'https://cf-pebble-backend.pages.dev';
+/** 请求超时。跨洋边缘节点冷启动实测要几秒，30 秒足够，也不至于把界面卡到像死机。 */
 const TIMEOUT_MS = 30000;
 /** securestore 里的密钥名 */
 const SECRET_TOKEN = 'cloud.token';
@@ -409,8 +413,9 @@ async function deleteBlob(key) {
  *   带 token 的 401 → 服务在，token 死了（req 已顺手清掉登录态）
  *   不带 token 的 401 → 服务在，只是没登录（鉴权在路由之前，任何路径都会回 401）
  *   其他（含网络失败）→ 服务不可用
- * 刻意不用 `/api/auth/me` 探：那条路由在服务端**不存在**（实测带有效 token 回 404），
- * 拿它探会把「路由不存在」误判成「服务不正常」。
+ * 刻意不用 `/api/me` 探：早期那版后端没有这条路由，带有效 token 会回 404，
+ * 拿它探会把「路由不存在」误判成「服务不正常」。现在虽然补上了，但 /api/blob
+ * 还能顺带拿到 key 数量，所以继续用它。
  * @returns {Promise<{reachable:boolean, ok:boolean, loggedIn:boolean, username?:string,
  *                    count?:number, code?:string, error?:string}>}
  */
