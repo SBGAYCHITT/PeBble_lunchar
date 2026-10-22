@@ -4,6 +4,7 @@ const path = require('path');
 const downloader = require('../downloader');
 const loaders = require('../loaders');
 const mcapi = require('../mcapi');
+const { pickManifestVersions } = require('../manifestversions');
 
 module.exports = function register(ctx) {
   const { ipcMain, emit } = ctx;
@@ -11,10 +12,12 @@ module.exports = function register(ctx) {
   ipcMain.handle('get-manifest', async () => {
     try {
       const m = await downloader.getManifest();
+      // 不再 slice —— 见 manifestversions.js：固定条数会把老版本永久截掉
+      const picked = pickManifestVersions(m.versions);
       return {
         ok: true,
         latest: m.latest,
-        versions: m.versions.slice(0, 120).map(v => ({ id: v.id, type: v.type, time: v.releaseTime }))
+        versions: picked.map(v => ({ id: v.id, type: v.type, time: v.releaseTime }))
       };
     } catch (e) { return { ok: false, error: e.message }; }
   });

@@ -22,7 +22,7 @@ const CORE = [
   'main.js', 'preload.js', 'renderer.js', 'pages.js', 'style.css',
   'assets/**/*',
   // 启动链路
-  'launcher.js', 'mcapi.js', 'downloader.js', 'loaders.js',
+  'launcher.js', 'mcapi.js', 'downloader.js', 'loaders.js', 'manifestversions.js',
   // 账户
   'accounts.js', 'securestore.js', 'avatar.js',
   // 运行时环境与系统
