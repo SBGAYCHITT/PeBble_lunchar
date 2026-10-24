@@ -203,7 +203,33 @@ async function installVersion({ mcDir, versionId, source, threads }, onProgress)
   return { ok: true, version: versionId };
 }
 
+/* ---------- 确保「原版本体」存在 ----------
+ * 加载器安装器（Fabric / Quilt / Forge / NeoForge）只写
+ *   versions/<loader-id>/<loader-id>.json
+ * **不会**顺手装上它所 inheritsFrom 的原版版本。玩家在「版本」页只点
+ * 「安装加载器」时，拿到的是一个能显示、能选中、一启动就报
+ * 「缺少客户端 jar」的 profile。
+ * 2026-10-24 就是这么卡住的：装了 fabric-loader-0.20.1-1.20.1，却没有 1.20.1 本体。
+ * 所以装加载器之前先在这里把本体补齐。
+ */
+function baseInstalled(mcDir, versionId) {
+  const dir = path.join(mcDir, 'versions', versionId);
+  return fs.existsSync(path.join(dir, versionId + '.json'))
+    && fs.existsSync(path.join(dir, versionId + '.jar'));
+}
+
+async function ensureInstalled({ mcDir, versionId, source, threads } = {}, onProgress) {
+  if (baseInstalled(mcDir, versionId)) return { ok: true, skipped: true, version: versionId };
+  // 清单里查不到的 id 是自定义 / 改过名的版本，不能凭 id 去官方源瞎下
+  const m = await getManifest();
+  if (!m.versions.some(v => v.id === versionId)) {
+    throw new Error('清单里没有 ' + versionId + '，无法自动安装本体（请先在「版本」页下载它）');
+  }
+  const r = await installVersion({ mcDir, versionId, source, threads }, onProgress);
+  return Object.assign({ skipped: false }, r);
+}
+
 // downloadFile / fetchJson / mirrorOf / configure 必须导出：
 // loaders.js 里所有加载器版本查询和安装器下载都依赖它们，
 // 之前漏导出会让调用点直接 TypeError（表现为 UI 上「获取失败 / 安装失败」）。
-module.exports = { installVersion, getManifest, downloadFile, fetchJson, mirrorOf, configure };
+module.exports = { installVersion, getManifest, downloadFile, fetchJson, mirrorOf, configure, baseInstalled, ensureInstalled };

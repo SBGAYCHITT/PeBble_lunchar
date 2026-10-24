@@ -47,6 +47,18 @@ module.exports = function register(ctx) {
   ipcMain.handle('install-loader', async (_e, opts) => {
     const send = (l) => emit('install-progress', { phase: l, done: 0, total: 1 });
     try {
+      /* 加载器安装器只写 profile，不带它所继承的原版本体。
+         本体缺了的话，装完能选中、一启动就「缺少客户端 jar」——
+         所以先补齐本体再装加载器（见 downloader.ensureInstalled 的注释）。 */
+      if (!downloader.baseInstalled(opts.mcDir, opts.mcVersion)) {
+        const v = opts.mcVersion;
+        send('先安装 ' + v + ' 本体…');
+        await downloader.ensureInstalled({ mcDir: opts.mcDir, versionId: v }, (p) => {
+          if (!p) return;
+          emit('install-progress', Object.assign({}, p, { phase: '安装 ' + v + ' · ' + (p.phase || '') }));
+        });
+        send(v + ' 本体就绪，开始装 ' + opts.loader);
+      }
       const r = await loaders.installLoader(opts, send);
       emit('install-progress', { phase: opts.loader + ' 安装完成', done: 1, total: 1, finished: true });
       return r;
