@@ -293,6 +293,44 @@ async function downloadFirst(urls, dest) {
  * Forge / NeoForge：没有跳过开关，硬要求 <mcDir>/launcher_profiles.json 存在，
  * 由 ensureLauncherProfiles 兜底（见上）。
  */
+/* ---------- 安装器输出解码 ----------
+ * 中文 Windows 上 Java 进程往管道里写的是 GBK（控制台代码页），
+ * 一律 buf.toString() 会解成「1 ?????????」这种乱码，用户根本无法判断错在哪。
+ * 先按严格 UTF-8 试一次：不抛就说明对方真是 UTF-8；抛了就是 GBK，改用它。
+ */
+function makeStreamDecoder() {
+  let dec = null;
+  return function decode(buf) {
+    if (!dec) {
+      try {
+        new TextDecoder('utf-8', { fatal: true }).decode(buf, { stream: true });
+        dec = new TextDecoder('utf-8');
+      } catch {
+        try { dec = new TextDecoder('gbk'); } catch { dec = new TextDecoder('utf-8'); }
+      }
+    }
+    return dec.decode(buf, { stream: true });
+  };
+}
+
+/**
+ * 把安装器的失败翻译成一句人话。
+ * 原始堆栈已经由 pump 打进「运行日志」了，状态栏不该再糊一屏 at java.base/...
+ */
+function humanizeInstallerFailure(code, out) {
+  const s = String(out || '');
+  if (/(拒绝访问|AccessDenied|另一个程序|正在使用|being used by another process|The process cannot access)/i.test(s)) {
+    return `安装器退出码 ${code}：目标文件被占用。先把游戏关掉、等杀毒软件扫完再重试。`;
+  }
+  if (/(Timed out|timed out|UnknownHost|Connection reset|ConnectException|502|503|504)/i.test(s)) {
+    return `安装器退出码 ${code}：下载超时（fabricmc.net 在国内不稳定）。再点一次安装通常就好。`;
+  }
+  if (/(Could not find or load main class|UnsupportedClassVersionError)/i.test(s)) {
+    return `安装器退出码 ${code}：Java 版本不对，换 17 或 21 再试。`;
+  }
+  return `安装器退出码 ${code}：安装器自己报错了，详细堆栈见下方「运行日志」。`;
+}
+
 function loaderCliArgs(o) {
   const { loader, jarPath, mcDir, mcVersion, version } = o;
   switch (loader) {
@@ -367,10 +405,15 @@ async function installLoader(opts, onLog) {
   const args = loaderCliArgs({ loader, jarPath, mcDir, mcVersion, version });
   log('执行安装: ' + path.basename(jarPath));
   return new Promise((resolve, reject) => {
-    const p = spawn(javaBin, args, { cwd: tmpDir, windowsHide: true });
+    /* 装上编码开关：Java 19+ 支持 stdout/stderr.encoding，
+       老版本会当成普通系统属性忽略掉，不报错。
+       这样安装器写出的中文提示就是 UTF-8，配合下面的解码兜底不会乱码。 */
+    const enc = ['-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8', '-Dfile.encoding=UTF-8'];
+    const p = spawn(javaBin, enc.concat(args), { cwd: tmpDir, windowsHide: true });
+    const decode = makeStreamDecoder();
     let out = '';
     const pump = (buf) => {
-      const s = buf.toString();
+      const s = decode(buf);
       out += s;
       for (const line of s.split('\n')) if (line.trim()) log(line.trim().slice(0, 300));
     };
@@ -378,8 +421,10 @@ async function installLoader(opts, onLog) {
     p.stderr.on('data', pump);
     p.on('error', e => reject(new Error('启动安装器失败: ' + e.message)));
     p.on('close', code => {
+      const tail = decode(Buffer.alloc(0));   // 冲掉流式解码器里剩下的字节
+      if (tail) { out += tail; log(tail.trim()); }
       if (code === 0) resolve({ ok: true, loader, version, log: out.slice(-2000) });
-      else reject(new Error('安装器退出码 ' + code + '\n' + out.slice(-800)));
+      else reject(new Error(humanizeInstallerFailure(code, out)));
     });
   });
 }
@@ -389,5 +434,6 @@ module.exports = {
   installLoader,
   /* 供单测使用的纯函数 */
   cmpDotted, parseForgeMavenVersions, promosSupportedMc, normalizeForgeVersion, forgeInstallerUrls,
-  neoforgeMcPrefix, ensureLauncherProfiles, loaderCliArgs, PROFILE_REQUIRED
+  neoforgeMcPrefix, ensureLauncherProfiles, loaderCliArgs, PROFILE_REQUIRED,
+  makeStreamDecoder, humanizeInstallerFailure
 };

@@ -188,6 +188,10 @@
       refreshInstalled();
     } else {
       st.setStatus(T("pg.L161C39", null, '安装失败: ') + ((r && r.error) || T("pg.L161C40", null, '未知')), 'err');
+      /* 失败也要刷新：安装器可能已经写出了 profile（或把旧的清掉了），
+         不刷新的话「游戏版本」会一直停在失败前那一份，看起来像列表坏了。 */
+      await S().refreshAll();
+      refreshInstalled();
     }
   }
 
