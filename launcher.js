@@ -371,6 +371,24 @@ async function launchGame(opts, onLog) {
   } else {
     if (!fs.existsSync(javaBin)) return { ok: false, error: 'Java 路径无效: ' + javaBin };
     javaVer = await javaVersionOf(javaBin);
+
+    /* 手动指定/实例里存着的 Java 可能比这个版本要求的低。
+       真实场景：给 1.20.1 指定了 Java 17，之后又拿同一份配置去启动 1.21.1，
+       结果是 `Unsupported major.minor version 65.0` —— 一句看不懂的英文，
+       用户只会觉得「启动器坏了」。这里直接纠正，并在日志里说清楚。 */
+    const needMajor = Number(json.javaVersion && json.javaVersion.majorVersion) ||
+      requiredJavaMajor(version);
+    const gotMajor = javaMajorOf(javaVer);
+    if (needMajor > 0 && gotMajor > 0 && gotMajor < needMajor) {
+      const det = await detectJava(mcDir, needMajor);
+      if (det && javaMajorOf(det.version) >= needMajor) {
+        tell(`指定的 Java ${javaVer} 低于 ${version} 需要的 ${needMajor}，改用 ${det.version}`);
+        javaBin = det.path;
+        javaVer = det.version;
+      } else {
+        tell(`警告：${version} 需要 Java ${needMajor}，本机只找到 ${javaVer}，启动大概率失败`);
+      }
+    }
   }
   const javaMajor = javaMajorOf(javaVer);
   tell('使用 Java: ' + javaBin + (javaVer ? ' (v' + javaVer + ')' : ''));
