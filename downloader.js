@@ -19,7 +19,15 @@ function mirrorOf(url) {
     [/^https?:\/\/launchermeta\.mojang\.com\//, 'https://bmclapi2.bangbang93.com/'],
     [/^https?:\/\/piston-data\.mojang\.com\//, 'https://bmclapi2.bangbang93.com/'],
     [/^https?:\/\/libraries\.minecraft\.net\//, 'https://bmclapi2.bangbang93.com/maven/'],
-    [/^https?:\/\/resources\.download\.minecraft\.net\//, 'https://bmclapi2.bangbang93.com/assets/']
+    [/^https?:\/\/resources\.download\.minecraft\.net\//, 'https://bmclapi2.bangbang93.com/assets/'],
+    /* 加载器元数据：这三个域名国内都时通时不通（2026-10-25 实测
+       meta.fabricmc.net 要 11 秒、maven.neoforged.net 直接 20 秒超时），
+       BMCLAPI 有对应镜像，0.2 秒返回。注意 neoforged 的 releases 段要吃掉。 */
+    [/^https?:\/\/meta\.fabricmc\.net\//, 'https://bmclapi2.bangbang93.com/fabric-meta/'],
+    [/^https?:\/\/meta\.quiltmc\.org\//, 'https://bmclapi2.bangbang93.com/quilt-meta/'],
+    [/^https?:\/\/maven\.neoforged\.net\/releases\//, 'https://bmclapi2.bangbang93.com/maven/'],
+    [/^https?:\/\/maven\.fabricmc\.net\//, 'https://bmclapi2.bangbang93.com/maven/'],
+    [/^https?:\/\/maven\.minecraftforge\.net\//, 'https://bmclapi2.bangbang93.com/maven/']
   ];
   for (const [re, rep] of rules) if (re.test(url)) return url.replace(re, rep);
   return null;

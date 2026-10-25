@@ -2,16 +2,44 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const { downloadFile, fetchJson } = require('./downloader');
+const { downloadFile, fetchJson, mirrorOf } = require('./downloader');
 
 const BMCL = 'https://bmclapi2.bangbang93.com';
 const FORGE_MAVEN = 'https://maven.minecraftforge.net';
 const FORGE_PROMOS = 'https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json';
+const NEOFORGE_MAVEN = 'https://maven.neoforged.net/releases/net/neoforged/neoforge';
 
 async function fetchText(url) {
-  const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  return await res.text();
+  // 官方优先、镜像兜底。**不能**反过来：BMCLAPI 上 Forge 的 maven-metadata.xml
+  // 是 2022-02-21 的冻结快照，镜像优先会让 Forge 列表又卡回 1.18。
+  const urls = [url, mirrorOf(url)].filter(Boolean);
+  let lastErr;
+  for (const u of urls) {
+    try {
+      const res = await fetch(u, { signal: AbortSignal.timeout(30000) });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return await res.text();
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw new Error('获取失败: ' + url + ' (' + (lastErr && lastErr.message) + ')');
+}
+
+/**
+ * 镜像优先的 JSON 拉取（只用于 Fabric / Quilt 这类「镜像和官方同构」的元数据）。
+ * 官方通常要等满 30 秒超时才回落，镜像 0.2 秒就回来了。
+ */
+async function fetchJsonMirrorFirst(officialUrl) {
+  const m = mirrorOf(officialUrl);
+  if (m) {
+    try {
+      return await fetchJson(m);
+    } catch {
+      /* 落回官方 */
+    }
+  }
+  return await fetchJson(officialUrl);
 }
 
 /* ---------- 元数据解析 ---------- */
@@ -175,23 +203,80 @@ function neoforgeMcPrefix(mcVersion) {
 }
 
 async function neoforgeVersions(mcVersion) {
-  const xml = await fetchText('https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml');
-  const all = parseMavenVersions(xml);
-  // 旧实现用 /^\d+\.\d+\.\d+(-beta)?$/ 过滤，匹配不到 26.2.0.88 这类四段版本号，
-  // 结果下拉里全是过期版本。改成按 MC 版本前缀取。
+  const mc = String(mcVersion || '').trim();
+  if (!mc) throw new Error('未指定 MC 版本');
+
+  /* 历史坑（2026-10-25 实测）：以前只读 maven.neoforged.net 的 maven-metadata.xml。
+     这个域名在国内经常直接连不上 —— 20 秒超时、`fetch failed`，
+     UI 就只显示「获取失败」，用户以为是自己填错了版本。
+     改成镜像优先：BMCLAPI 有按 MC 版本过滤好的 /neoforge/list/<mc>，
+     国内 0.3 秒返回；官方 maven 只当兜底。 */
+  const errs = [];
+  let all = null;
+  try {
+    all = await neoforgeVersionsFromBmcl(mc);
+  } catch (e) {
+    errs.push('BMCLAPI: ' + e.message);
+  }
+  // 镜像返回空 = 这个 MC 版本确实还没发布，但镜像也可能滞后，再用官方复核一次
+  if (!all || !all.length) {
+    try {
+      all = await neoforgeVersionsFromMaven(mc);
+    } catch (e) {
+      errs.push('NeoForge 官方: ' + e.message);
+    }
+  }
+  if (all === null) throw new Error('版本列表获取失败（' + errs.join('；') + '）');
+
+  // 返回字符串数组（与旧契约一致，IPC 层直接塞进 list，前端 String(v) 就能用）
+  return [...new Set(all)].sort((a, b) => cmpDotted(b, a)).slice(0, 15);
+}
+
+/** BMCLAPI：已按 MC 版本过滤，直接就是该版本的构建列表 */
+async function neoforgeVersionsFromBmcl(mc) {
+  let r;
+  try {
+    r = await fetchJson(`${BMCL}/neoforge/list/${encodeURIComponent(mc)}`);
+  } catch (e) {
+    // 404 = 这个 MC 版本没有 NeoForge 构建（不是网络故障），按空列表处理，
+    // 免得把「还没发布」也报成「获取失败」
+    if (/HTTP 404/.test(e.message)) return [];
+    throw e;
+  }
+  if (!Array.isArray(r)) throw new Error('接口返回非数组');
+  return r
+    .map(o => String(o.version || o.rawVersion || '').replace(/^neoforge-/, '').trim())
+    .filter(v => /^\d+\.\d+/.test(v));
+}
+
+/** 官方 maven：全量列表，按 MC 前缀过滤（1.21.1 → 21.1.x） */
+async function neoforgeVersionsFromMaven(mcVersion) {
+  const xml = await fetchText(`${NEOFORGE_MAVEN}/maven-metadata.xml`);
   const prefixes = neoforgeMcPrefix(mcVersion);
   if (!prefixes.length) return [];
-  const hit = all
-    .filter(v => prefixes.some(p => v.startsWith(p.endsWith('.') ? p : p + '.')))
-    .map(version => ({ version }))
-    .sort(byVerDesc)
-    .slice(0, 15)
-    .map(o => o.version);
-  return hit;
+  return parseMavenVersions(xml).filter(v => prefixes.some(p => v.startsWith(p.endsWith('.') ? p : p + '.')));
+}
+
+/**
+ * 纯函数：NeoForge 安装器地址。
+ * 镜像在前：maven.neoforged.net 在国内不通是这个 bug 的根因，
+ * 官方地址留着只是为了镜像挂掉时不至于完全装不了。
+ */
+function neoforgeInstallerUrls(version) {
+  const v = String(version || '').trim();
+  if (!/^\d+\.\d+/.test(v)) return null;
+  const file = `neoforge-${v}-installer.jar`;
+  return {
+    file,
+    urls: [
+      `${BMCL}/maven/net/neoforged/neoforge/${v}/${file}`,
+      `${NEOFORGE_MAVEN}/${v}/${file}`,
+    ],
+  };
 }
 
 async function fabricLoaderVersions() {
-  const r = await fetchJson('https://meta.fabricmc.net/v2/versions/loader');
+  const r = await fetchJsonMirrorFirst('https://meta.fabricmc.net/v2/versions/loader');
   const arr = Array.isArray(r) ? r : [];
   // Fabric meta 现在只把「最新那一个」loader 标成 stable:true（253 条里 1 条），
   // 按 stable 过滤会让下拉只剩 1 项，没法回退旧版本。改成交出最新 10 个 + 稳定标记。
@@ -199,14 +284,14 @@ async function fabricLoaderVersions() {
 }
 
 async function fabricInstallerUrl() {
-  const r = await fetchJson('https://meta.fabricmc.net/v2/versions/installer');
+  const r = await fetchJsonMirrorFirst('https://meta.fabricmc.net/v2/versions/installer');
   const v = (r || [])[0];
   if (!v) throw new Error('无法获取 Fabric installer');
   return { version: v.version, url: `https://maven.fabricmc.net/net/fabricmc/fabric-installer/${v.version}/fabric-installer-${v.version}.jar` };
 }
 
 async function quiltLoaderVersions() {
-  const r = await fetchJson('https://meta.quiltmc.org/v3/versions/loader');
+  const r = await fetchJsonMirrorFirst('https://meta.quiltmc.org/v3/versions/loader');
   return (r || []).map(v => v.version).slice(0, 10);
 }
 
@@ -377,10 +462,11 @@ async function installLoader(opts, onLog) {
     log('下载 Forge 安装器 ' + info.bare + '…');
     await downloadFirst(info.urls, jarPath);
   } else if (loader === 'neoforge') {
-    jarPath = path.join(tmpDir, `neoforge-${version}-installer.jar`);
-    const url = `https://maven.neoforged.net/releases/net/neoforged/neoforge/${version}/neoforge-${version}-installer.jar`;
-    log('下载 NeoForge 安装器…');
-    await downloadFile(url, jarPath);
+    const info = neoforgeInstallerUrls(version);
+    if (!info) throw new Error('NeoForge 版本号无效: ' + version);
+    jarPath = path.join(tmpDir, info.file);
+    log('下载 NeoForge 安装器 ' + version + '…');
+    await downloadFirst(info.urls, jarPath);
   } else if (loader === 'fabric') {
     const info = await fabricInstallerUrl();
     jarPath = path.join(tmpDir, 'fabric-installer.jar');
@@ -434,6 +520,6 @@ module.exports = {
   installLoader,
   /* 供单测使用的纯函数 */
   cmpDotted, parseForgeMavenVersions, promosSupportedMc, normalizeForgeVersion, forgeInstallerUrls,
-  neoforgeMcPrefix, ensureLauncherProfiles, loaderCliArgs, PROFILE_REQUIRED,
+  neoforgeMcPrefix, neoforgeInstallerUrls, ensureLauncherProfiles, loaderCliArgs, PROFILE_REQUIRED,
   makeStreamDecoder, humanizeInstallerFailure
 };

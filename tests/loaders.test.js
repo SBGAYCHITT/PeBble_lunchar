@@ -235,8 +235,10 @@ const FIXTURE_XML = `<?xml version="1.0" encoding="UTF-8"?>
       assert.ok(r.list.every(x => !String(x.version).includes('-')), '版本号里不该带 MC 前缀');
       assert.ok(r.list.some(x => x.tag), '没有任何推荐/最新标记');
     });
-    await ta('MC 26.3（Forge 未发布）→ ok:true 但空列表 + unsupported', async () => {
-      const r = await L.forgeVersions('26.3');
+    await ta('Forge 明确不存在的 MC（99.0）→ ok:true 但空列表 + unsupported', async () => {
+      // 别用 "26.3 未发布" 当下游断言 —— 上游会随时发版，把测试变成定时炸弹
+      // （2026-10-25 就是这么炸的：26.3 已经有 13 个 Forge 构建了）
+      const r = await L.forgeVersions('99.0');
       assert.strictEqual(r.ok, true, '空列表不该报网络错: ' + JSON.stringify(r));
       assert.strictEqual(r.list.length, 0);
       assert.strictEqual(r.reason, 'unsupported');
@@ -261,6 +263,25 @@ const FIXTURE_XML = `<?xml version="1.0" encoding="UTF-8"?>
       const list = await L.neoforgeVersions('26.2');
       assert.ok(list.length > 0, '列表为空');
       assert.ok(list.every(v => v.startsWith('26.2.')), '混进了别的版本: ' + list.slice(0, 3));
+    });
+    await ta('NeoForge 1.21.1 走镜像能取到 21.1.x（官方 maven 在国内不通）', async () => {
+      const list = await L.neoforgeVersions('1.21.1');
+      assert.ok(list.length > 0, '列表为空 —— maven.neoforged.net 在国内经常连不上，必须走 BMCLAPI 镜像');
+      assert.ok(list.every(v => String(v).startsWith('21.1.')), '混进了别的版本: ' + list.slice(0, 3));
+    });
+    await ta('NeoForge 没有对应构建的 MC → 空列表而不是报错', async () => {
+      const list = await L.neoforgeVersions('1.0.0');
+      assert.deepStrictEqual(list, [], '应返回空数组，UI 才能显示「暂无可用版本」而不是「获取失败」');
+    });
+    await ta('NeoForge 安装器地址镜像优先', () => {
+      const u = L.neoforgeInstallerUrls('21.1.1');
+      assert.ok(u, '拼不出地址');
+      assert.strictEqual(u.file, 'neoforge-21.1.1-installer.jar');
+      assert.ok(u.urls[0].startsWith('https://bmclapi2.bangbang93.com/'), '第一顺位必须是镜像: ' + u.urls[0]);
+      assert.ok(u.urls[0].endsWith('/net/neoforged/neoforge/21.1.1/neoforge-21.1.1-installer.jar'), '镜像路径不对: ' + u.urls[0]);
+      assert.ok(u.urls[1].startsWith('https://maven.neoforged.net/'), '官方兜底丢了');
+      assert.strictEqual(L.neoforgeInstallerUrls(''), null, '空版本号应返回 null');
+      assert.strictEqual(L.neoforgeInstallerUrls('abc'), null, '非法版本号应返回 null');
     });
     await ta('Quilt / OptiFine 列表非空', async () => {
       assert.ok((await L.quiltLoaderVersions()).length > 0, 'Quilt 为空');
