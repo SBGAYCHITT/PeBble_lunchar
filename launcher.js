@@ -357,7 +357,14 @@ async function launchGame(opts, onLog) {
   let javaBin = javaPath;
   let javaVer = null;
   if (!javaBin) {
-    const det = await detectJava(mcDir, requiredJavaMajor(version));
+    /* 版本 JSON 里的 javaVersion 最准（合并后父版本的要求会保留）。
+       只靠 requiredJavaMajor(versionId) 会踩坑：加载器 id 形如
+       neoforge-21.1.264 / fabric-loader-0.20.1-1.20.1，从字符串开头
+       推不出版本，以前会落回「Java 8」，结果拿 Java 17 去跑 1.21.1，
+       启动即 UnsupportedClassVersionError。 */
+    const needMajor = Number(json.javaVersion && json.javaVersion.majorVersion) ||
+      requiredJavaMajor(version);
+    const det = await detectJava(mcDir, needMajor);
     if (!det) return { ok: false, error: '未找到 Java，请在设置中手动指定 javaw.exe' };
     javaBin = det.path;
     javaVer = det.version;
