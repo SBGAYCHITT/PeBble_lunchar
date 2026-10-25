@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { downloadFile, fetchJson, mirrorOf } = require('./downloader');
+const { prefetchInstallerLibraries, ensureVersionJson } = require('./installerprep');
 
 const BMCL = 'https://bmclapi2.bangbang93.com';
 const FORGE_MAVEN = 'https://maven.minecraftforge.net';
@@ -402,13 +403,19 @@ function makeStreamDecoder() {
  * 把安装器的失败翻译成一句人话。
  * 原始堆栈已经由 pump 打进「运行日志」了，状态栏不该再糊一屏 at java.base/...
  */
-function humanizeInstallerFailure(code, out) {
+function humanizeInstallerFailure(code, out, loader) {
   const s = String(out || '');
   if (/(拒绝访问|AccessDenied|另一个程序|正在使用|being used by another process|The process cannot access)/i.test(s)) {
     return `安装器退出码 ${code}：目标文件被占用。先把游戏关掉、等杀毒软件扫完再重试。`;
   }
   if (/(Timed out|timed out|UnknownHost|Connection reset|ConnectException|502|503|504)/i.test(s)) {
-    return `安装器退出码 ${code}：下载超时（fabricmc.net 在国内不稳定）。再点一次安装通常就好。`;
+    // 别再把 Forge/NeoForge 的超时也说成 fabricmc.net —— 它们跟 Fabric 没关系，
+    // 用户照着这句话去查 fabricmc 会白折腾。
+    const host =
+      loader === 'neoforge' ? 'maven.neoforged.net' :
+        loader === 'forge' ? 'maven.minecraftforge.net' :
+          'meta.fabricmc.net';
+    return `安装器退出码 ${code}：下载依赖超时（${host} 在国内不稳定）。依赖已尽量走镜像预置，仍失败就再点一次安装。`;
   }
   if (/(Could not find or load main class|UnsupportedClassVersionError)/i.test(s)) {
     return `安装器退出码 ${code}：Java 版本不对，换 17 或 21 再试。`;
@@ -489,6 +496,19 @@ async function installLoader(opts, onLog) {
   }
 
   const args = loaderCliArgs({ loader, jarPath, mcDir, mcVersion, version });
+
+  /* Forge / NeoForge 的安装器不走 -Dhttps.proxy，也不认 --mirror（实测），
+     它们直连 maven.neoforged.net 下 70 个库。国内这个域名不通，
+     每个库等一次超时就整体失败。所以先把库预置进 libraries/，
+     安装器看到 "File exists. Checksum valid." 就跳过下载。 */
+  if (loader === 'forge' || loader === 'neoforge') {
+    try {
+      await prefetchInstallerLibraries(jarPath, mcDir, log);
+    } catch (e) {
+      log('依赖预置失败（继续让安装器自己试）: ' + e.message);
+    }
+  }
+
   log('执行安装: ' + path.basename(jarPath));
   return new Promise((resolve, reject) => {
     /* 装上编码开关：Java 19+ 支持 stdout/stderr.encoding，
@@ -509,8 +529,20 @@ async function installLoader(opts, onLog) {
     p.on('close', code => {
       const tail = decode(Buffer.alloc(0));   // 冲掉流式解码器里剩下的字节
       if (tail) { out += tail; log(tail.trim()); }
-      if (code === 0) resolve({ ok: true, loader, version, log: out.slice(-2000) });
-      else reject(new Error(humanizeInstallerFailure(code, out)));
+      if (code === 0) {
+        // NeoForge 21.1.264 的安装器只写 launcher_profiles.json，
+        // 不写 versions/<id>/<id>.json —— 不补这份，启动器列表里就没有它。
+        if (loader === 'forge' || loader === 'neoforge') {
+          try {
+            ensureVersionJson(jarPath, mcDir, log);
+          } catch (e) {
+            log('补写版本清单失败: ' + e.message);
+          }
+        }
+        resolve({ ok: true, loader, version, log: out.slice(-2000) });
+      } else {
+        reject(new Error(humanizeInstallerFailure(code, out, loader)));
+      }
     });
   });
 }
