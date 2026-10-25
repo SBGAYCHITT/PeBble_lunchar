@@ -517,6 +517,27 @@ async function launchGame(opts, onLog) {
   if (!hasEnc('-Dsun.stderr.encoding=')) args.push('-Dsun.stderr.encoding=UTF-8');
 
   args.push(...jsonJvm);
+
+  /* NeoForge/Forge（1.20.5+ 的新启动器）用
+     `-DignoreList=client-extra,${version_name}.jar` 把「不该作为模块加载的 jar」排除。
+     但 `${version_name}` 填的是加载器 id（neoforge-21.1.264），而 classpath 里实际的
+     客户端 jar 是从父版本继承的 `1.21.1.jar` —— 名字对不上，没被忽略，
+     于是原版 client 被当成模块 `_1._21._1` 加载，和 neoforge 的 patched client
+     抢同一个包：
+       ResolutionException: Module minecraft contains package net.minecraft.server,
+       module _1._21._1 exports package net.minecraft.server to minecraft
+     这里把实际 client jar 的文件名补进 ignoreList。 */
+  const clientJarName = path.basename(clientJar || '');
+  const ignoreIdx = args.findIndex((a) => String(a).startsWith('-DignoreList='));
+  if (ignoreIdx >= 0 && clientJarName) {
+    const parts = String(args[ignoreIdx]).slice('-DignoreList='.length).split(',').filter(Boolean);
+    if (!parts.includes(clientJarName)) {
+      parts.push(clientJarName);
+      args[ignoreIdx] = '-DignoreList=' + parts.join(',');
+      tell('ignoreList 追加客户端 jar: ' + clientJarName);
+    }
+  }
+
   // `-cp` 通常由官方 JSON 给出（`-cp ${classpath}` 已展开），别重复追加
   if (!hasJvm('-cp') && !hasJvm('--class-path')) args.push('-cp', classPath);
   args.push(mainClass);
